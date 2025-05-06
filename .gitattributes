@@ -1,0 +1,2 @@
+# 始终使用 LF 作为换行符
+* text=auto eol=lf

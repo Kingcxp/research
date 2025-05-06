@@ -1,0 +1,10 @@
+*
+
+!README.md
+!.editorconfig
+!.gitignore
+!.gitattributes
+
+!KernelGPT
+!KernelGPT/*
+!KernelGPT/assets/*
