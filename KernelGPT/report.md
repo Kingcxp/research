@@ -195,3 +195,111 @@ html {
   <p class="text">这种管道结构使得 LLM 能够专注于特定片段，避免来自不相关片段的误导</p>
   <img class="img-fit" src="./assets/Figure_4.png" />
 </div>
+
+<!-- slide vertical data-auto-animate -->
+
+<div class="box-centered">
+  <p class="title">• KernelGPT</p>
+  <p class="text">1. 标识符推断</p>
+  <p class="text">KernelGPT 首先使用 LLM 确定相关的代码片段，作为后续步骤的指导</p>
+
+  ```js
+  Function Analyze(relatedCode, usageInfo, step):
+    if step > MAX_ITER then
+      return ∅
+
+    # 用小样本示例准备提示
+    prompt ← GenPrompt (relatedCode, usageInfo)
+
+    # 让 LLM 分析并指出不认识的标识符
+    result, unknown ← QueryLLM (prompt)
+
+    for (id, usageInfo) ∈ unknown do
+      # 根据不认识的标识符提取代码
+      relatedCode ← ExtractCode (id)
+
+      # 递归地分析缺失的源代码
+      res ← Analyze (relatedCode, usageInfo, step + 1)
+
+      # 用分析的结果更新结果
+      Update (result, res)
+
+    return result
+  ```
+</div>
+
+<!-- slide vertical data-auto-animate -->
+
+<div class="box-centered">
+  <p class="title">• KernelGPT</p>
+  <p class="text">2. 类型恢复</p>
+  <p class="text">在标识符推断之后，下一个阶段是分析每个标识符值的参数类型结构</p>
+  <p class="text">同理，如果类型确定逻辑委托给了其他函数，则继续在后续步骤分析</p>
+
+  ```js
+  Function Analyze(relatedCode, usageInfo, step):
+    if step > MAX_ITER then
+      return ∅
+
+    # 用小样本示例准备提示
+    prompt ← GenPrompt (relatedCode, usageInfo)
+
+    # 让 LLM 分析并指出不认识的标识符
+    result, unknown ← QueryLLM (prompt)
+
+    for (id, usageInfo) ∈ unknown do
+      # 根据不认识的标识符提取代码
+      relatedCode ← ExtractCode (id)
+
+      # 递归地分析缺失的源代码
+      res ← Analyze (relatedCode, usageInfo, step + 1)
+
+      # 用分析的结果更新结果
+      Update (result, res)
+
+    return result
+  ```
+</div>
+
+<!-- slide vertical data-auto-animate -->
+
+<div class="box-centered">
+  <p class="title">• KernelGPT</p>
+  <p class="text">3. 依赖关系分析</p>
+  <p class="text">最后，我们需要分析 <strong>syscall</strong> 之间的依赖关系</p>
+  <p class="text">在这里用 LLM 分析当前 <strong>syscall</strong> 是否依赖于当前 <strong>syscall</strong> 的返回值</p>
+
+  ```js
+  Function Analyze(relatedCode, usageInfo, step):
+    if step > MAX_ITER then
+      return ∅
+
+    # 用小样本示例准备提示
+    prompt ← GenPrompt (relatedCode, usageInfo)
+
+    # 让 LLM 分析并指出不认识的标识符
+    result, unknown ← QueryLLM (prompt)
+
+    for (id, usageInfo) ∈ unknown do
+      # 根据不认识的标识符提取代码
+      relatedCode ← ExtractCode (id)
+
+      # 递归地分析缺失的源代码
+      res ← Analyze (relatedCode, usageInfo, step + 1)
+
+      # 用分析的结果更新结果
+      Update (result, res)
+
+    return result
+  ```
+</div>
+
+<!-- slide vertical data-auto-animate -->
+
+<div class="box-centered">
+  <p class="title">• KernelGPT</p>
+  <p class="text">规范验证和修复</p>
+  <p class="text">考虑到 LLM 在生成的过程中可能出错，文章作者使用了现成但未知的工具</p>
+  <p class="text">这些工具分析规范并在发现不一致时提供错误消息，</p>
+  <p class="text">这些信息通过 KernelGPT 查询 LLM 进行纠正，由少样本示例指导</p>
+</div>
