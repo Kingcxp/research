@@ -1,10 +1,6 @@
-*
+.vs/
+.vscode/
+.idea/
 
-!README.md
-!.editorconfig
-!.gitignore
-!.gitattributes
-
-!KernelGPT
-!KernelGPT/*
-!KernelGPT/assets/*
+.DS_Store
+__MACOSX/
