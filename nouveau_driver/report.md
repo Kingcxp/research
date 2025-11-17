@@ -40,4 +40,6 @@
 
 ### nouveau_drv.h - 驱动核心头文件
 
+### nvif/device.c - 设备接口层
 
+- `nvif_device_ctor()`
