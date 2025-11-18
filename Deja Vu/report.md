@@ -4,7 +4,7 @@
 
 **Deja Vu: Contextual Sparsity for Efficient LLMs at Inference Time**
 
-ICML 2023 (arXiv:2310.17157)
+ICML 2023
 
 <!-- slide vertical -->
 
@@ -76,7 +76,7 @@ ICML 2023 (arXiv:2310.17157)
 
 <div class="box-centered">
   <p class="title">洞察 1：Attention是一种聚类</p>
-  <li class="text list">观察：(图4) 不同的头有不同作用</li>
+  <li class="text list">观察：不同的头有不同作用</li>
   <li class="text list list-2">"重击者" (Heavy Hitter) 头：高度关注 "shipping", "like" 等关键Token</li>
   <li class="text list list-2">"均匀混合" (Uniform) 头：对所有Token的注意力是分散、模糊的</li>
   <li class="text list">假说：Attention 的计算过程在数学上类似于 "均值漂移聚类" (Mean-Shift Clustering) 的一步迭代</li>
@@ -84,9 +84,11 @@ ICML 2023 (arXiv:2310.17157)
   <li class="text list list-2">"均匀"的头没有找到 "簇"（贡献小，可被稀疏）</li>
 </div>
 
+<!-- slide vertical -->
+
 <div class="box-centered">
   <p class="title">洞察 2：跨层嵌入缓慢变化</p>
-  <li class="text list">观察：(图5) 同一个Token在第 l 层和第 l+1 层的嵌入向量，其余弦相似度高达 0.99</li>
+  <li class="text list">观察：同一个Token在第 l 层和第 l+1 层的嵌入向量，其余弦相似度高达 0.99</li>
   <li class="text list">原因：残差连接 Output=X+F(X)</li>
   <li class="text list list-2">论文发现，输入 X 的范数 ∣∣X∣∣ 远大于 F(X)（Attention或MLP计算结果）的范数 ∣∣F(X)∣∣</li>
   <li class="text list list-2">F(X) 只是对 X 的一个微小修正，因此 Output≈X</li>

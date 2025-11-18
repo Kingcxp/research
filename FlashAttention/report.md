@@ -74,7 +74,7 @@ html {
 
 <!-- slide -->
 
-### FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness
+**FlashAttention: Fast and Memory-Efficient Exact Attention with IO-Awareness**
 NeuroIPS 2022
 
 <!-- slide vertical -->
