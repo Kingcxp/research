@@ -71,7 +71,7 @@ html {
 
 <!-- slide -->
 
-### Attention is All You Need
+**Attention is All You Need**
 NeuroIPS 2017
 
 <!-- slide vertical -->

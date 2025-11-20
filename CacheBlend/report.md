@@ -74,7 +74,7 @@ html {
 
 <!-- slide -->
 
-### CacheBlend: Fast Large Language Model Serving for RAG with Cached Knowledge Fusion
+**CacheBlend: Fast Large Language Model Serving for RAG with Cached Knowledge Fusion**
 EuroSys 2025
 
 <!-- slide vertical -->
@@ -112,7 +112,7 @@ EuroSys 2025
   <li class="text list">CacheBlend 采用逐层过滤的方案 ：</li>
   <li class="text list list-2">第 1 层： 完全重算，选出 r1​% (例如 20%) 偏差最高的词 </li>
   <li class="text list list-2">第 2 层： 仅为这 r1​% 的词重算，并从它们之中选出 r2​% (例如 18%) </li>
-  <li class="text list list-2">第 i 层： 重复此过程，逐步筛选出在多层上偏差都高的词 </li>
+  <li class="text list list-2">第 i 层： 重复此过程，逐步筛选出在多层上偏差都高的词，比例逐渐收敛到目标比例 (例如 15%) </li>
   <li class="text list">此方案能更可靠地在每一层识别出 HKVD 词 </li>
 </div>
 
@@ -149,5 +149,3 @@ EuroSys 2025
   <li class="text list list-2">执行者。在 GPU 上执行“渐进式过滤” </li>
   <li class="text list list-2">按管线化调度执行计算和加载 </li>
 </div>
-
-<!-- TODO: 阅读代码实现 -->

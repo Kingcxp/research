@@ -33,7 +33,7 @@ ICML 2023
 
 **核心概念：上下文稀疏性**
 
-<!-- slide vertical -->
+<!-- slide vertical data-auto-animate -->
 
 <div class="box-centered" data-auto-animate>
   <p class="title">什么是上下文稀疏性？</p>
@@ -42,7 +42,7 @@ ICML 2023
   <li class="text list list-2">对所有输入都使用同一套稀疏参数</li>
 </div>
 
-<!-- slide vertical -->
+<!-- slide vertical data-auto-animate -->
 
 <div class="box-centered" data-auto-animate>
   <p class="title">什么是上下文稀疏性？</p>
@@ -137,18 +137,18 @@ ICML 2023
   <li class="text list">效果：预测开销被主计算的延迟完美隐藏</li>
 </div>
 
-<!-- slide vertical -->
+<!-- slide vertical data-auto-animate -->
 
-<div class="box-centered" data-auto-animate>
+<div class="box-centered">
   <p class="title">挑战 2：效率 (硬件感知)</p>
   <li class="text list">难题：为什么标准稀疏在GPU上很慢？</li>
   <li class="text list list-2">W[idx,:] * y (PyTorch稀疏) 需要 3x 内存I/O：(1)读索引 → (2)读非连续数据并写回连续内存 → (3)读连续数据并计算</li>
   <li class="text list list-2">I/O 成为瓶颈，比稠密还慢</li>
 </div>
 
-<!-- slide vertical -->
+<!-- slide vertical data-auto-animate -->
 
-<div class="box-centered" data-auto-animate>
+<div class="box-centered">
   <p class="title">挑战 2：效率 (硬件感知)</p>
   <li class="text list">难题：为什么标准稀疏在GPU上很慢？</li>
   <li class="text list list-2">W[idx,:] * y (PyTorch稀疏) 需要 3x 内存I/O：(1)读索引 → (2)读非连续数据并写回连续内存 → (3)读连续数据并计算</li>
@@ -158,9 +158,9 @@ ICML 2023
   <li class="text list list-2">使用 Triton 编写自定义GPU内核，将 "索引" 和 "计算" 融合，I/O开销从 3x 降到 1x。比 PyTorch 快 4-5 倍。</li>
 </div>
 
-<!-- slide vertical -->
+<!-- slide vertical data-auto-animate -->
 
-<div class="box-centered" data-auto-animate>
+<div class="box-centered">
   <p class="title">挑战 2：效率 (硬件感知)</p>
   <li class="text list">难题：为什么标准稀疏在GPU上很慢？</li>
   <li class="text list list-2">W[idx,:] * y (PyTorch稀疏) 需要 3x 内存I/O：(1)读索引 → (2)读非连续数据并写回连续内存 → (3)读连续数据并计算</li>
