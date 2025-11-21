@@ -55,6 +55,14 @@ style: |
     z-index: 1;
     color: #E5EAF3;
   }
+
+  img {
+    max-width: 100%;
+  }
+
+  strong {
+    color: #409EFF !important;
+  }
 ---
 
 <!-- _class: title-page -->
@@ -68,7 +76,7 @@ style: |
 
 - #### Transformer
   - What does NLP want to solve
-  - Before transformer
+  - Before the Transformers
   - Transformer
 - #### LLM
   - The challenge
@@ -97,7 +105,7 @@ _header: Transformer
 
 - ###### What does NLP want to solve?
 
-The most common application of NLP is **translation**.
+The application for NLP is **translation**.
 
 In translation, we want to translate a sentence to another sentence.
 
@@ -107,13 +115,13 @@ In translation, we want to translate a sentence to another sentence.
 
 - ###### What does NLP want to solve?
 
-The most common application of NLP is **translation**.
+The application for NLP is **translation**.
 
-In translation, we want to translate a sentence to another sentence.
+In **translation**, we want to translate a sentence to another sentence.
 
 The sentence and the translation result can be **anything**, for example:
 
-[![](https://mermaid.ink/img/pako:eNo9jUtvgzAQhP-KtWeCjI0x8SFVH4ceeqh6bMhhhc1DARs5RmlL-O81kdrVHHZ29O0sUDttQEEzuGvdoQ_k7aOyJM7j8dVdSXCkdu5M0BKcpsE8nMhud7gFj_YyYDA38nR8nwPpoyxpem_S08ZDAq3vNajgZ5PAaPyIm4VlSysInRlNBSquGv25gsqukZnQfjo3_mHezW0HqsHhEt086dj40mPrcfy_emO18c9utgFUKeT9CagFvkBxkWZciKKQWZYzIcsEvkExztNCliLndE9LRvmawM-9laZSMCoZ3ZeUsSzP-PoLhbRYuQ?type=png)](https://mermaid.live/edit#pako:eNo9jUtvgzAQhP-KtWeCjI0x8SFVH4ceeqh6bMhhhc1DARs5RmlL-O81kdrVHHZ29O0sUDttQEEzuGvdoQ_k7aOyJM7j8dVdSXCkdu5M0BKcpsE8nMhud7gFj_YyYDA38nR8nwPpoyxpem_S08ZDAq3vNajgZ5PAaPyIm4VlSysInRlNBSquGv25gsqukZnQfjo3_mHezW0HqsHhEt086dj40mPrcfy_emO18c9utgFUKeT9CagFvkBxkWZciKKQWZYzIcsEvkExztNCliLndE9LRvmawM-9laZSMCoZ3ZeUsSzP-PoLhbRYuQ)
+![](assets/translate-example.png)
 
 To put it more vividly, given the sentence as context, we need to predict what's next.
 
@@ -131,6 +139,13 @@ To put it more vividly, given the sentence as context, we need to predict what's
   
 - **Solution**: Represent words as **vectors** (embeddings)
 
-[![](https://mermaid.ink/img/pako:eNpVkLtugzAUhl_FOguLY_mCA2WolIQFqVPHAoMbHIIS7MiFXhLy7rVDm6pnsc_v7_PtAlvbaMhgd7Qf271yA3p6rgzytSoLdLTvGq2KGi0Wj9NgD9p0Zz2hdVlBGRURRlEgwrgqorqCelbXgUezgAaLinxCm-AwihGnEiNB_-jNTBd5QLV51U3TmXZCeTBKSjjDaEFJ7DVCCEaUCFHj2Q1V-sVlEnLG7wiV_xBKUq_7PI5_EC8lrP69BWBoXddANrhRY-i161Vo4RJWKxj2utcVZH7aKHeooDJX75yUebG2_9WcHds9ZDt1fPPdeGrUoPNOtU7199Rp02i3saMZIJOM3TaB7AKfkHFKpJBpwiSViUiE_yn48rFIyZImXMaUp4JTccVwvh3rn8UYZ4w-8JhR5q3rN6GNfc8?type=png)](https://mermaid.live/edit#pako:eNpVkLtugzAUhl_FOguLY_mCA2WolIQFqVPHAoMbHIIS7MiFXhLy7rVDm6pnsc_v7_PtAlvbaMhgd7Qf271yA3p6rgzytSoLdLTvGq2KGi0Wj9NgD9p0Zz2hdVlBGRURRlEgwrgqorqCelbXgUezgAaLinxCm-AwihGnEiNB_-jNTBd5QLV51U3TmXZCeTBKSjjDaEFJ7DVCCEaUCFHj2Q1V-sVlEnLG7wiV_xBKUq_7PI5_EC8lrP69BWBoXddANrhRY-i161Vo4RJWKxj2utcVZH7aKHeooDJX75yUebG2_9WcHds9ZDt1fPPdeGrUoPNOtU7199Rp02i3saMZIJOM3TaB7AKfkHFKpJBpwiSViUiE_yn48rFIyZImXMaUp4JTccVwvh3rn8UYZ4w-8JhR5q3rN6GNfc8)
+![](assets/embedding.png)
 
 - Through the help of a pretrained matrix, each token is converted into a vector of size $d_{model}$, which every number in the vector represents a sematic feature of the token.
+
+---
+
+<!-- _header: Before the Transformers -->
+
+- ###### So before the **Transformers**, how did we translate the embeddings?
+
