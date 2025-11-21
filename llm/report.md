@@ -57,6 +57,7 @@ style: |
   }
 
   img {
+    max-height: 50vh;
     max-width: 100%;
   }
 
@@ -95,13 +96,11 @@ _header: Transformer
 
 ---
 
-<!-- _header: NLP (Nature Language Processing) -->
+<!-- header: NLP (Nature Language Processing) -->
 
 - ###### What does NLP want to solve?
 
 ---
-
-<!-- _header: NLP (Nature Language Processing) -->
 
 - ###### What does NLP want to solve?
 
@@ -110,8 +109,6 @@ The application for NLP is **translation**.
 In translation, we want to translate a sentence to another sentence.
 
 ---
-
-<!-- _header: NLP (Nature Language Processing) -->
 
 - ###### What does NLP want to solve?
 
@@ -123,17 +120,20 @@ The sentence and the translation result can be **anything**, for example:
 
 ![](assets/translate-example.png)
 
-To put it more vividly, given the sentence as context, we need to predict what's next.
-
 ---
 
-<!-- _header: NLP (Nature Language Processing) -->
+- ###### What does NLP want to solve?
+
+
+![](assets/translate-example.png)
+
+To put it more vividly, given the sentence as context, we need to **predict what's next**.
+
+---
 
 - ###### How to represent words so that computers can **understand** them?
 
 ---
-
-<!-- _header: NLP (Nature Language Processing) -->
 
 - ###### How to represent words so that computers can **understand** them?
   
@@ -145,7 +145,46 @@ To put it more vividly, given the sentence as context, we need to predict what's
 
 ---
 
-<!-- _header: Before the Transformers -->
+<!-- header: Before the **Transformers** -->
 
 - ###### So before the **Transformers**, how did we translate the embeddings?
+
+---
+
+- ###### So before the **Transformers**, how did we translate the embeddings?
+
+**RNN(Rerrent Neuro Network)** is commonly used for translation
+
+![](assets/fully-connected-neuro-network.png)
+
+**Neuro Network** can convert some vector into another vector.
+
+---
+
+- ###### How does **RNN** work?
+
+Based on the **Fully Connected Neural Network**, **RNN** can remember the weighed values for all the hidden layers of the previous embedding.
+
+This helps **RNN** to take in embeddings one by one and remember the context.
+
+![](assets/rnn-translate.png)
+
+---
+
+- ###### How does **RNN** work?
+
+![](assets/rnn-translate.png)
+
+After taking in all the embeddings, **RNN** can remember the combined context of all the tokens.
+
+Afterwards, **RNN** can output a vector representing the chance of which token should be the next token.
+
+Similarly, **RNN** takes in the token and predicts the next token.
+
+---
+
+<!-- header: Drawbacks of **RNN** -->
+
+- Then why **RNN** should be replaced?
+
 
