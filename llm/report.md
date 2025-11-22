@@ -187,4 +187,64 @@ Similarly, **RNN** takes in the token and predicts the next token.
 
 - Then why **RNN** should be replaced?
 
+**RNN** can only take in the embeddings one by one, which means that **RNN** cannot take in a token before all the tokens before it are taken in.
 
+![](assets/rnn-translate.png)
+
+This takes really a long time, and is hard to be optimized.
+
+Also, as **RNN** read more tokens, the context may be lost.
+
+---
+
+<!--
+_class: title-page
+header: Transformer
+-->
+
+## Transformer:
+## **A Brand New Approach**
+
+###### Attention is All You Need (NeuroIPS 2017)
+
+---
+
+- ###### How Transformer improves upon RNN?
+
+**RNN** processes data sequentially (Time-step $t$ relies on $t-1$).
+**Transformer** processes data **in Parallel**.
+
+1.  **Parallelism**: It takes the whole sentence at once. No more waiting for the previous word.
+2.  **Long-term Dependency**: Through **Self-Attention**, the first word can directly "see" the last word, regardless of distance.
+
+---
+
+<!-- _header: Transformer - **The Structure** -->
+
+- ###### The Big Picture: Encoder-Decoder Structure
+
+Transformer follows the standard **Encoder-Decoder** structure.
+
+![](assets/transformer-overview.png)
+
+---
+
+<!-- _header: Transformer - **Encoder** -->
+
+- ###### Zooming into the **Encoder**
+
+The Encoder is a stack of $N$ identical layers (e.g., $N=6$).
+Each layer consists of two main sub-layers:
+
+1.  **Multi-Head Self-Attention**: To find relationships between tokens.
+2.  **Feed-Forward Network (FFN)**: To process and digest the information.
+
+![](assets/transformer-encoder-layer.png)
+
+---
+
+<!-- _header: Transformer - **Multi-Head Self-Attention** -->
+
+![](assets/embedding.png)
+
+![](assets/qkv.png)
