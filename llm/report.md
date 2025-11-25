@@ -246,7 +246,6 @@ Each layer consists of two main sub-layers:
 <!-- header: Transformer - **Multi-Head Self-Attention** -->
 
 ![](assets/embedding.png)
-
 ![](assets/qkv.png)
 
 ---
@@ -463,3 +462,13 @@ header: Complexity Analysis: **Decoder Layer**
 
 - **Total(For generating length of m)**:
   - **Time**: $O(m(d^2 + nd))$
+
+---
+
+<!--
+header: Transformer: **Training**
+_class: title-page
+-->
+
+## Transformer:
+## **Train** the beast
