@@ -141,7 +141,7 @@ To put it more vividly, given the sentence as context, we need to **predict what
 
 ![](assets/embedding.png)
 
-- Through the help of a pretrained matrix, each token is converted into a vector of size $d_{model}$, which every number in the vector represents a sematic feature of the token.
+- Through the help of a pretrained matrix, each token is converted into a vector of size $d_{model}$, which every number in the vector represents a semantic feature of the token.
 
 ---
 
@@ -153,7 +153,7 @@ To put it more vividly, given the sentence as context, we need to **predict what
 
 - ###### So before the **Transformers**, how did we translate the embeddings?
 
-**RNN(Rerrent Neuro Network)** is commonly used for translation
+**RNN(Recurrent Neural Network)** is commonly used for translation
 
 ![](assets/fully-connected-neuro-network.png)
 
@@ -280,7 +280,7 @@ Language is complex.
 
 Language is complex.
 
-We split $Q, K, V$ into `n_heads` heads, calculate relationships indepedently, and then concatenate the results.
+We split $Q, K, V$ into `n_heads` heads, calculate relationships independently, and then concatenate the results.
 
 ![](assets/multi-heads.png)
 
@@ -441,7 +441,7 @@ header: Complexity Analysis: **Encoder Layer**
   - **Time**: $[n, d_{model}]\times [d_{model}, d_{model}] \Rightarrow O(Nd_{model}^2)$
 - **Self-Attention**: 
   - **Time**: $[n, d_{heads}]\times [d_{heads}, n] \times [n, d_{heads}] \Rightarrow O(N^2d_{heads})$
-- **FNN**:
+- **FFN**:
   - **Time**: $[n, d_{model}]\times [d_{model}, d_{model}] \Rightarrow O(Nd_{model}^2)$
 
 - **Total**:
@@ -457,7 +457,7 @@ header: Complexity Analysis: **Decoder Layer**
   - **Time**: $[1, d_{model}]\times [d_{model}, d_{model}] \Rightarrow O(d_{model}^2)$
 - **Self-Attention**: 
   - **Time**: $[1, d_{heads}]\times [d_{heads}, t] \times [t, d_{heads}] \Rightarrow O(td_{heads})$
-- **FNN**:
+- **FFN**:
   - **Time**: $[1, d_{model}]\times [d_{model}, d_{model}] \Rightarrow O(d_{model}^2)$
 
 - **Total(For generating length of m)**:
@@ -471,4 +471,91 @@ _class: title-page
 -->
 
 ## Transformer:
-## **Train** the beast
+## **How to Train**
+
+###### From Randomness to Intelligence
+
+---
+
+- ###### The Transformation
+
+**Training** = Tuning the matrices ($W$) to minimize error.
+
+![](assets/training-overview.png)
+
+---
+
+- ###### Step 1: We construct the **Question** (Input) and **Answer** (Target) from the raw text.
+
+![](assets/train-target.png)
+
+---
+
+- ###### Step 2: The Problem of "Cheating"
+
+If we feed the whole sequence, Position 1 ("I") can see Position 2 ("Love").
+This is **Data Leakage**.
+
+![](assets/cheating.png)
+
+---
+
+- ###### Step 3: The Mask Matrix (The Blindfold)
+
+We add $-\infty$ to the upper triangle to block future connections.
+
+$$
+\text{Attention Scores} + \text{Mask} \rightarrow \text{Softmax}
+$$
+
+$$
+\begin{bmatrix} 
+\text{Sim}(I, I) & \text{Sim}(I, Love) \\ 
+\text{Sim}(Love, I) & \text{Sim}(Love, Love) 
+\end{bmatrix}
++
+\begin{bmatrix} 
+0 & \mathbf{-\infty} \\ 
+0 & 0 
+\end{bmatrix}
+\approx
+\begin{bmatrix} 
+\text{Score} & \mathbf{0} \\ 
+\text{Score} & \text{Score} 
+\end{bmatrix}
+$$
+
+* **Result**:
+  * Row 1 can **ONLY** see Col 1.
+  * Row 2 can see Col 1 & 2.
+
+---
+
+- ###### Step 4: Parallel Loss Calculation
+
+We calculate errors for **ALL** positions simultaneously.
+
+![](assets/loss.png)
+
+$$
+\text{Total Loss} = \text{Loss}_1 + \text{Loss}_2 + \text{Loss}_3
+$$
+
+---
+
+- ###### Step 5: The Learning Cycle
+
+![](assets/learning.png)
+
+**Repeat this loop billions of times.**
+
+---
+
+- ###### Comparison: Training vs Inference
+
+| Feature | Training | Inference |
+| :--- | :--- | :--- |
+| **Strategy** | **Parallel** (Teacher Forcing) | **Serial** (Autoregressive) |
+| **Input** | Whole Sentence | Past Tokens Only |
+| **Future** | **Masked** (Artificial) | **Non-existent** |
+| **Complexity** | $O(N^2)$ (One Pass) | $O(N^3)$ (Loop) |
