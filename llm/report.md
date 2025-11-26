@@ -402,6 +402,36 @@ We calculated it **YET AGAIN** in Step 3.
 Let's do the math for generating a sequence of length $N$.
 
 At **Step $t$** (current length $t$):
+
+---
+
+Let's do the math for generating a sequence of length $N$.
+
+At **Step $t$** (current length $t$):
+* We input a matrix of shape $(t \times d)$.
+
+---
+
+Let's do the math for generating a sequence of length $N$.
+
+At **Step $t$** (current length $t$):
+* We input a matrix of shape $(t \times d)$.
+* **Self-Attention Cost**: $Q(t \times d) \times K^T(d \times t) \to \text{Score}(t \times t)$.
+
+---
+
+Let's do the math for generating a sequence of length $N$.
+
+At **Step $t$** (current length $t$):
+* We input a matrix of shape $(t \times d)$.
+* **Self-Attention Cost**: $Q(t \times d) \times K^T(d \times t) \to \text{Score}(t \times t)$.
+* Matrix Multiplication Complexity: **$O(t^2 \cdot d)$**.
+
+---
+
+Let's do the math for generating a sequence of length $N$.
+
+At **Step $t$** (current length $t$):
 * We input a matrix of shape $(t \times d)$.
 * **Self-Attention Cost**: $Q(t \times d) \times K^T(d \times t) \to \text{Score}(t \times t)$.
 * Matrix Multiplication Complexity: **$O(t^2 \cdot d)$**.
@@ -438,14 +468,14 @@ header: Complexity Analysis: **Encoder Layer**
 -->
 
 - **QKV**:
-  - **Time**: $[n, d_{model}]\times [d_{model}, d_{model}] \Rightarrow O(Nd_{model}^2)$
+  - **Time**: $[n, d_{model}]\times [d_{model}, d_{model}] \Rightarrow O(nd_{model}^2)$
 - **Self-Attention**: 
-  - **Time**: $[n, d_{heads}]\times [d_{heads}, n] \times [n, d_{heads}] \Rightarrow O(N^2d_{heads})$
+  - **Time**: $[n, d_{heads}]\times [d_{heads}, n] \times [n, d_{heads}] \Rightarrow O(n^2d_{heads})$
 - **FFN**:
-  - **Time**: $[n, d_{model}]\times [d_{model}, d_{model}] \Rightarrow O(Nd_{model}^2)$
+  - **Time**: $[n, d_{model}]\times [d_{model}, d_{model}] \Rightarrow O(nd_{model}^2)$
 
 - **Total**:
-  - **Time**: $O(Nd^2 + N^2d)$
+  - **Time**: $O(nd^2 + n^2d)$
 
 ---
 
@@ -456,12 +486,12 @@ header: Complexity Analysis: **Decoder Layer**
 - **QKV**:
   - **Time**: $[1, d_{model}]\times [d_{model}, d_{model}] \Rightarrow O(d_{model}^2)$
 - **Self-Attention**: 
-  - **Time**: $[1, d_{heads}]\times [d_{heads}, t] \times [t, d_{heads}] \Rightarrow O(td_{heads})$
+  - **Time**: $[1, d_{heads}]\times [d_{heads}, n+t] \times [n+t, d_{heads}] \Rightarrow O(td_{heads})$
 - **FFN**:
   - **Time**: $[1, d_{model}]\times [d_{model}, d_{model}] \Rightarrow O(d_{model}^2)$
 
 - **Total(For generating length of m)**:
-  - **Time**: $O(m(d^2 + nd))$
+  - **Time**: $O(m(d^2 + (n+m)d))$
 
 ---
 
@@ -559,3 +589,128 @@ $$
 | **Input** | Whole Sentence | Past Tokens Only |
 | **Future** | **Masked** (Artificial) | **Non-existent** |
 | **Complexity** | $O(N^2)$ (One Pass) | $O(N^3)$ (Loop) |
+
+---
+
+<!--
+header: Transformer: **Memory IO**
+_class: title-page
+-->
+
+## Transformer:
+## **Memory IO**
+
+###### The cost in the hardware reality
+
+---
+
+Understanding **Data Movement** is key to optimization.
+
+![](assets/memory.png)
+
+**Rule**: Computation can ONLY happen in SRAM. 
+Data must be loaded **HBM $\to$ SRAM** to be processed, then written back.
+
+---
+
+- ###### Phase 1: Prefilling (**The Encoder**)
+
+**Scenario**: Input $n$ tokens at once.
+
+* **Operation**: Matrix Multiplication (Input $\times$ Weights).
+* **Memory Pattern**:
+    1.  Load Weights ($W$) from HBM to SRAM **Once**.
+    2.  Compute for **ALL $n$ tokens** in parallel on SRAM.
+    3.  Write KV Cache to HBM.
+
+**Status: Compute Bound (Good)**
+
+---
+
+- ###### Phase 1: Prefilling (**The QKV**)
+
+**Target**: Calculate $S = QK^T, P = Softmax(S), O = PV$
+
+1. Read $Q, K$ from HBM $\to$ Compute $S$ $\to$ **Write $S$ to HBM**.
+2. Read $S$ from HBM $\to$ Compute $P$ $\to$ **Write $P$ to HBM**.
+3. Read $P, V$ from HBM $\to$ Compute $O$ $\to$ Write $O$ to HBM.
+
+Frequently moving data between HBM and SRAM is **expensive**.
+
+---
+
+- ###### Phase 2: Decoding (Generation)
+
+**Scenario**: Generate **1 single token**.
+
+* **Operation**: Vector-Matrix Multiplication.
+* **Memory Pattern**:
+    1.  Load the **Entire Model Weights** ($d\times d$) from HBM.
+    2.  Load the **Entire KV Cache** ($N\times d$) from HBM.
+    3.  Compute for just **1 token**.
+
+> **Status: Memory Bound (Bad)**
+> We moved GBs of data just to calculate a tiny vector.
+
+---
+
+- ###### Arithmetic Intensity
+
+| Phase | Input Size | Math (FLOPs) | Memory Access | Intensity | Status |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| **Prefill** | $N$ (Large) | $O(N \cdot d^2)$ | $O(d^2)$ (Weights) | **High** | Compute Bound |
+| **Decoding** | 1 (Tiny) | $O(d^2)$ | $O(d^2)$ (Weights) | **Low (~1)** | **Memory Bound** |
+
+**Decoding is slow because of Low Arithmetic Intensity.**
+
+---
+
+<!--
+header: Transformer: **FlashAttention Optimization**
+_class: title-page
+-->
+
+## Transformer Optimization:
+## **FlashAttention**
+
+###### Fast and Memory-Efficient Exact Attention with IO-Awareness
+
+---
+
+- ###### Phase 1: Prefilling (**The QKV**)
+
+**Target**: Calculate $S = QK^T, P = Softmax(S), O = PV$
+
+1. Read $Q, K$ from HBM $\to$ Compute $S$ $\to$ **Write $S$ to HBM**.
+2. Read $S$ from HBM $\to$ Compute $P$ $\to$ **Write $P$ to HBM**.
+3. Read $P, V$ from HBM $\to$ Compute $O$ $\to$ Write $O$ to HBM.
+
+Frequently moving data between HBM and SRAM is **expensive**.
+
+**The bottleneck is reading/writing $N^2$ elements to HBM.**
+
+---
+
+- ###### FlashAttention: The Core Idea
+
+**"IO-Awareness"**: minimize HBM accesses.
+
+Two key techniques:
+1. **Tiling**: Compute attention by **blocks**. Load small blocks of $Q, K, V$ to SRAM, compute, and update output without writing full matrix $S$ to HBM.
+2. **Recomputation**: Do not save the attention matrix for backward pass. Recompute it on-the-fly.
+
+---
+
+<!-- header: FlashAttention: **Tiling** -->
+
+- ###### Technique 1: Tiling (Forward Pass)
+
+Instead of computing the full $N \times N$ matrix, we  try to **split $Q, K, V$ into blocks** that fit in **SRAM**.
+
+We iterate over blocks of $K, V$ (outer loop) and $Q$ (inner loop), updating the output $O$ in SRAM using **Online Softmax**.
+
+---
+
+<!-- header: Tiling: **How to Calculate?** -->
+
+
