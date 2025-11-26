@@ -15,6 +15,8 @@ style: |
   section {
     position: relative;
     font-family: Bahnschrift;
+    padding-bottom: 64px !important;
+    padding-top: 64px !important;
   }
 
   section.title-page {
@@ -707,10 +709,107 @@ Two key techniques:
 
 Instead of computing the full $N \times N$ matrix, we  try to **split $Q, K, V$ into blocks** that fit in **SRAM**.
 
-We iterate over blocks of $K, V$ (outer loop) and $Q$ (inner loop), updating the output $O$ in SRAM using **Online Softmax**.
+![](assets/split.png)
 
 ---
 
 <!-- header: Tiling: **How to Calculate?** -->
 
+- ###### The Softmax Problem
 
+Standard Softmax needs the **entire row** to calculate the normalization factor (denominator).
+
+$$Softmax(x_i) = \frac{e^{x_i}}{\sum_{j=1}^{N} e^{x_j}}$$
+
+---
+
+<!-- header: Softmax: **Merging the blocks** -->
+
+![](assets/merge-block.png)
+
+If we slice the matrix, **we don't have the global sum!**
+
+---
+
+- ###### The Solution: Online Softmax
+
+We can update the Softmax result **incrementally**.
+We track local statistics: **Max ($m$)** and **Sum ($l$)**.
+
+![](assets/online-softmax.png)
+
+**Key**: When a new max value is found, shrink the old sum to keep the math correct.
+
+---
+
+The softmax of vector $x\in R^B$ is computed as:
+
+- $m(x) = \underset{i}{\max}\ x_i$
+- $f(x) = [e^{x_1 - m(x)}\ \ldots\ e^{x_B - m(x)}]$
+- $softmax(x) = \frac{f(x)}{l(x)}$
+
+---
+
+For vectors **$x^{(1)},x^{(2)}\in \mathbf{R}^B$**, we can decompose the softmax of the concatenated **$x = [x^{(1)}, x^{(2)}]\in \mathbf{R}^{2B}$** as:
+
+- $m(x) = \max(m(x^{(1)}), m(x^{(2)}))$
+- $f(x) = [e^{m(x^{(1)}) - m(x)}f(x^(1))\ \ e^{m(x^{(2)}) - m(x)}f(x^{(2)})]$
+- $l(x) = e^{m(x^{(1)}) - m(x)}l(x^{(1)}) + e^{m(x^{(2)} - m(x))l(x^{(2)})}$
+
+- $P = Softmax(x) = \frac{f(x)}{l(x)}$
+
+---
+
+- ###### Computing the Partial Output
+
+Once we have the Attention Probabilities ($P_{ij}$) for the current block, we multiply them by Value ($V_j$).
+
+$$O_{ij} = P_{ij} \times V_j$$
+
+But we cannot just "Add" this to the previous result, because the **Softmax Denominator** changes!
+
+---
+
+- ###### Rescaling and Merging
+
+To merge the **Old Output** with the **New Partial Output**, we must **Rescale** the old data using the updated Softmax statistics.
+
+![](assets/output.png)
+
+---
+
+**The Update Formula:**
+
+$$
+O_{new} = \frac{1}{\ell_{new}} \left( \underbrace{\ell_{old} e^{m_{old} - m_{new}} O_{old}}_{\text{Rescaled Old Output}} + \underbrace{e^{\tilde{m_{ij}} - m_{new}} \tilde{P_{ij}} V}_{\text{New Block Output}} \right)
+$$
+
+- **$\tilde{m_{ij}}, \tilde{P_{ij}}$**: $rowmax(S_{ij})$ and $e^{S_{ij} - \tilde{m_{ij}}}$.
+
+> **Meaning**: "Shrink" the old result based on how much the Max value increased, then add the new weighted contribution.
+
+---
+
+```python
+# Load Q, K, V from HBM. Split into blocks.
+for j in range(Tc):  # Outer Loop: Load K, V blocks (Fits in SRAM)
+    K_j, V_j = load_from_HBM(j) 
+    for i in range(Tr):  # Inner Loop: Load Q blocks (Fits in SRAM)
+        Q_i, O_i, l_i, m_i = load_from_HBM(i)
+        # 1. Compute Attention Score
+        S_ij = Q_i @ K_j.T
+        # 2. Compute Local Softmax Stats
+        m_tilde = rowmax(S_ij)
+        P_tilde = exp(S_ij - m_tilde)
+        l_tilde = rowsum(P_tilde)
+        # 3. Update Global Stats (Online Softmax)
+        m_new = max(m_i, m_tilde)
+        l_new = exp(m_i - m_new) * l_i + exp(m_tilde - m_new) * l_tilde
+        # 4. Rescale and Update Output (The Formula)
+        O_i = (1 / l_new) * ( 
+            l_i * exp(m_i - m_new) * O_i + 
+            exp(m_tilde - m_new) * (P_tilde @ V_j) 
+        )
+        # 5. Write back to HBM
+        write_to_HBM(O_i, l_new, m_new)
+```
