@@ -615,6 +615,18 @@ Data must be loaded **HBM $\to$ SRAM** to be processed, then written back.
 
 ---
 
+- IO Complexity of Self-Attention:
+
+| Operation               | Read HBM           | Write HBM   | Complexity            |
+| ---------------- | -------------- | ------ | -------------- |
+| $S = QK^T$        | Q, K (2Nd)     | S (N²) | O(Nd + N²)     |
+| $P = softmax(S)$ | S (N²)         | P (N²) | O(N²)          |
+| $O = PV$         | P, V (N² + Nd) | O (Nd) | O(Nd + N²)     |
+| **Total**     |                  |                |         **O(Nd + N²)** |
+
+
+---
+
 - ###### Phase 1: Prefilling (**The Encoder**)
 
 **Scenario**: Input $n$ tokens at once.
@@ -635,7 +647,7 @@ Data must be loaded **HBM $\to$ SRAM** to be processed, then written back.
 
 1. Read $Q, K$ from HBM $\to$ Compute $S$ $\to$ **Write $S$ to HBM**.
 2. Read $S$ from HBM $\to$ Compute $P$ $\to$ **Write $P$ to HBM**.
-3. Read $P, V$ from HBM $\to$ Compute $O$ $\to$ Write $O$ to HBM.
+3. Read $P, V$ from HBM $\to$ Compute $O$ $\to$ **Write $O$ to HBM.**
 
 Frequently moving data between HBM and SRAM is **expensive**.
 
