@@ -624,58 +624,7 @@ Data must be loaded **HBM $\to$ SRAM** to be processed, then written back.
 | $O = PV$         | P, V (N² + Nd) | O (Nd) | O(Nd + N²)     |
 | **Total**     |                  |                |         **O(Nd + N²)** |
 
-
----
-
-- ###### Phase 1: Prefilling (**The Encoder**)
-
-**Scenario**: Input $n$ tokens at once.
-
-* **Operation**: Matrix Multiplication (Input $\times$ Weights).
-* **Memory Pattern**:
-    1.  Load Weights ($W$) from HBM to SRAM **Once**.
-    2.  Compute for **ALL $n$ tokens** in parallel on SRAM.
-    3.  Write KV Cache to HBM.
-
-**Status: Compute Bound (Good)**
-
----
-
-- ###### Phase 1: Prefilling (**The QKV**)
-
-**Target**: Calculate $S = QK^T, P = Softmax(S), O = PV$
-
-1. Read $Q, K$ from HBM $\to$ Compute $S$ $\to$ **Write $S$ to HBM**.
-2. Read $S$ from HBM $\to$ Compute $P$ $\to$ **Write $P$ to HBM**.
-3. Read $P, V$ from HBM $\to$ Compute $O$ $\to$ **Write $O$ to HBM.**
-
 Frequently moving data between HBM and SRAM is **expensive**.
-
----
-
-- ###### Phase 2: Decoding (Generation)
-
-**Scenario**: Generate **1 single token**.
-
-* **Operation**: Vector-Matrix Multiplication.
-* **Memory Pattern**:
-    1.  Load the **Entire Model Weights** ($d\times d$) from HBM.
-    2.  Load the **Entire KV Cache** ($N\times d$) from HBM.
-    3.  Compute for just **1 token**.
-
-> **Status: Memory Bound (Bad)**
-> We moved GBs of data just to calculate a tiny vector.
-
----
-
-- ###### Arithmetic Intensity
-
-| Phase | Input Size | Math (FLOPs) | Memory Access | Intensity | Status |
-| :--- | :--- | :--- | :--- | :--- | :--- |
-| **Prefill** | $N$ (Large) | $O(N \cdot d^2)$ | $O(d^2)$ (Weights) | **High** | Compute Bound |
-| **Decoding** | 1 (Tiny) | $O(d^2)$ | $O(d^2)$ (Weights) | **Low (~1)** | **Memory Bound** |
-
-**Decoding is slow because of Low Arithmetic Intensity.**
 
 ---
 
@@ -772,6 +721,8 @@ For vectors **$x^{(1)},x^{(2)}\in \mathbf{R}^B$**, we can decompose the softmax 
 
 ---
 
+<!-- header: Transformer: **FlashAttention Optimization** -->
+
 - ###### Computing the Partial Output
 
 Once we have the Attention Probabilities ($P_{ij}$) for the current block, we multiply them by Value ($V_j$).
@@ -825,3 +776,251 @@ for j in range(Tc):  # Outer Loop: Load K, V blocks (Fits in SRAM)
         # 5. Write back to HBM
         write_to_HBM(O_i, l_new, m_new)
 ```
+
+---
+
+- ###### Analysis: Why Tiling saves HBM Access?
+
+Let's compare the **HBM Access** (Data movement) count.
+
+**Standard Attention**:
+
+1.  Read $Q, K$ ($N\times d$) $\to$ Write $S$ ($N^2$).
+2.  Read $S$ ($N^2$) $\to$ Write $P$ ($N^2$).
+3.  Read $P, V$ ($N^2$, $N\times d$) $\to$ Write $O$ ($N\times d$).
+
+**Total HBM Access**: $O(Nd + N^2)$
+
+---
+
+- ###### Analysis: FlashAttention IO Complexity
+
+1. Block size: **$B_c = B_r = O(\frac{M}{d})$**
+2. Load blocks of $K, V$ into SRAM (**$\frac{N}{B_c}\times 2B_cd = O(Nd)$**).
+3. Load blocks of $Q$ into SRAM (**$\frac{N}{B_c}\times\frac{N}{B_r}\times B_rd = O(\frac{N^2d^2}{M})$**).
+4. Compute and Write $O$ block (**The same**).
+
+**Total HBM Access**: $O(Nd + N^2 d^2 M^{-1})$, where $M$ is the size of SRAM
+
+- Since $d^2 \ll M$, the number of accesses is reduced significantly.
+
+---
+
+<!--
+header: Transformer: **Block-Sparse FlashAttention Optimization**
+_class: title-page
+-->
+
+## Extension:
+
+## **Block-Sparse FlashAttention**
+
+###### Scaling to Infinite Context?
+
+---
+
+  - ###### What if we skip some blocks?
+
+For extremely long sequences (e.g., 64k+), even $O(N^2)$ compute is too slow.
+
+**Observation**: The Attention Matrix is usually sparse (many values are near 0).
+
+**Idea**: Use a predefined mask $\tilde{M}$. If a block is zero in the mask, **skip loading and computing it**.
+
+---
+
+- ###### The Block-Sparse Algorithm
+
+![](assets/block-sparse.png)
+
+---
+
+- ###### Block-Sparse Complexity
+
+Let $s$ be the fraction of non-zero blocks.
+
+- **Standard FlashAttention**:
+  - HBM Access: $O(N^2 d^2 M^{-1})$
+
+- **Block-Sparse FlashAttention**:
+  - HBM Access: $O(N^2 d^2 M^{-1} s)$
+
+* Fo large sequence length $N$, $s$ is often $N^{-1/2}$ or $N^{-1}\log N$.
+
+---
+
+<!--
+header: Transformer: **PagedAttention Optimization**
+_class: title-page
+-->
+
+## Optimization:
+
+## **PagedAttention** (vLLM)
+
+###### Breaking the Contiguous Memory Requirement
+
+---
+
+- ###### The Memory Problem in Decoding
+
+In existing systems, KV Cache requires **Contiguous Memory**.
+But we don't know how long the output will be\!
+
+**Result**: We must **Pre-allocate** max length (e.g., 2048).
+
+* **Internal Fragmentation**: Reserved but unused slots.
+* **External Fragmentation**: Memory allocator cannot find huge contiguous chunks.
+* **Result**: **60% - 80%** of GPU memory is wasted!
+
+---
+
+  - ###### The Solution: Virtual Memory
+
+Inspired by **OS Virtual Memory (Paging)**.
+
+  * **OS**: Maps Logical Pages $\to$ Physical Frames.
+  * **vLLM**: Maps **Logical KV Blocks** $\to$ **Physical KV Blocks**.
+
+\<div class="mermaid"\>
+graph LR
+subgraph Logical [Logical KV Space (Continuous)]
+L1[Block 0: "Four"]
+L2[Block 1: "score"]
+L3[Block 2: "and"]
+end
+
+```
+subgraph Table [Block Table]
+T1[0 -> Phy 7]
+T2[1 -> Phy 1]
+T3[2 -> Phy 3]
+end
+
+subgraph Physical [Physical GPU Memory (Scattered)]
+P1[Phy 1: "score"]
+P2[Phy 3: "and"]
+P3[...]
+P4[Phy 7: "Four"]
+end
+
+L1 --> T1 --> P4
+L2 --> T2 --> P1
+L3 --> T3 --> P2
+
+style Logical fill:#E6A23C,color:white
+style Physical fill:#409EFF,color:white
+```
+
+\</div\>
+
+**Key**: Physical blocks do **NOT** need to be contiguous.
+
+---
+
+  - ###### Block-wise Attention Computation
+
+We modify the Attention calculation to fetch data block-by-block via the Block Table.
+
+$$
+A_{ij} = \frac{\exp(q_i^T K_j / \sqrt{d})}{\sum_{t=1}^{\lceil i/B \rceil} \exp(q_i^T K_{t} / \sqrt{d})}
+$$
+
+  - $K_j$: The Key vector in the $j$-th block.
+  - **Process**:
+    1.  Identify logical blocks for current request.
+    2.  Lookup physical addresses in **Block Table**.
+    3.  Fetch non-contiguous blocks from HBM to SRAM.
+    4.  Compute Attention.
+
+---
+
+  - ###### The Killer Feature: Memory Sharing
+
+Since we use a Block Table, we can map **different logical blocks** to the **same physical block**.
+
+**Use Case**: Parallel Sampling / Beam Search.
+
+  * Prompt: *"Translate this article..."* (Shared)
+  * Sample A: *"The article..."*
+  * Sample B: *"This text..."*
+
+---
+
+  - ###### Mechanism: Copy-on-Write (CoW)
+
+\<div class="mermaid"\>
+graph TD
+subgraph Physical\_Memory
+P\_Prompt[Physical Block 1: "Translate..."]
+P\_A[Physical Block 2: "The"]
+P\_B[Physical Block 3: "This"]
+end
+
+```
+subgraph Request_A [Seq A Table]
+LA0[Log 0] --> P_Prompt
+LA1[Log 1] --> P_A
+end
+
+subgraph Request_B [Seq B Table]
+LB0[Log 0] --> P_Prompt
+LB1[Log 1] --> P_B
+end
+
+style P_Prompt fill:#E6A23C,stroke:#333,stroke-width:4px
+```
+
+\</div\>
+
+  * **Prompt Phase**: Both point to Physical Block 1. **Ref Count = 2**.
+  * **Generation**: When Sequence A writes new token, it allocates new Block 2. Block 1 remains untouched.
+  * **Result**: Massive memory savings (up to 55% in Beam Search).
+
+---
+
+  - ###### Space Complexity: Near-Zero Waste
+
+<!-- end list -->
+
+  * **Pre-allocation**: $O(\text{Max\_Seq\_Len} \times \text{Batch})$ $\rightarrow$ **Wasteful**.
+  * **PagedAttention**: $O(\text{Actual\_Seq\_Len} \times \text{Batch})$.
+
+**Fragmentation Analysis**:
+
+  * No External Fragmentation (All blocks are same size).
+  * Internal Fragmentation is limited to the **last block only**.
+      * $\text{Waste} < \text{Block Size} / \text{Seq Length}$.
+      * With Block Size = 16, waste is **\< 4%**.
+
+---
+
+  - ###### Time Complexity & Overhead
+
+Does looking up the Block Table slow us down?
+
+  * **Kernel Overhead**: Small overhead (20-26%) in attention kernel due to memory indirection and extra branches.
+  * **End-to-End Gain**:
+      * Since we save memory, we can increase **Batch Size** significantly.
+      * **Throughput**: 2-4x higher than standard systems (FasterTransformer).
+
+| Metric | Impact |
+| :--- | :--- |
+| **Single Request Latency** | Slightly Higher (Overhead) |
+| **System Throughput** | **2-4x Higher** (Larger Batch) |
+
+---
+
+<!-- _class: title-page -->
+
+## **Summary of Optimizations**
+
+---
+
+  - ###### Summary: From $O(N^2)$ to Efficient Serving
+
+| Technique | Problem Solved | Method | Key Benefit |
+| :--- | :--- | :--- | :--- |
+| **KV Cache** | Redundant Compute | Caching History | $O(N^3) \to O(N^2)$ Time |
+| **FlashAttention** | HBM IO Bottleneck | Tiling & Recompute | $O(N^2) \to O(N)$ Mem, Speedup |
+| **PagedAttention** | Memory Fragmentation | Virtual Memory / Blocks | **Max Batch Size**, High Throughput |
