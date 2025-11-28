@@ -4,8 +4,8 @@ theme: gaia
 size: 16:9
 paginate: true
 math: katex
-backgroundColor: #141414
-color: #E5EAF3
+backgroundColor: #FFFFFF
+color: #303133
 footer: Chen Qi @ 2025
 style: |
   p {
@@ -29,7 +29,7 @@ style: |
   section::before {
     content: "";
     position: absolute;
-    background-color: #1D1E1F;
+    background-color: #FFFFFF;
     height: 64px;
     width: 100%;
     top: 0;
@@ -38,7 +38,7 @@ style: |
 
   section::after {
     content: "";
-    background-color: #1D1E1F;
+    background-color: #FFFFFF;
     margin-top: auto;
     height: 64px;
     width: 100%;
@@ -50,12 +50,12 @@ style: |
 
   header {
     z-index: 1;
-    color: #E5EAF3;
+    color: #303133;
   }
 
   footer {
     z-index: 1;
-    color: #E5EAF3;
+    color: #303133;
   }
 
   img {
@@ -68,11 +68,11 @@ style: |
   }
 
   code {
-    background-color: #262727;
+    background-color: #F5F7FA;
   }
 
   pre {
-    background-color: #262727;
+    background-color: #F5F7FA;
   }
 ---
 
