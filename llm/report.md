@@ -66,6 +66,14 @@ style: |
   strong {
     color: #409EFF !important;
   }
+
+  code {
+    background-color: #262727;
+  }
+
+  pre {
+    background-color: #262727;
+  }
 ---
 
 <!-- _class: title-page -->
@@ -949,3 +957,132 @@ Does looking up the Block Table slow us down?
   * **End-to-End Gain**:
       * Since we save memory, we can increase **Batch Size** significantly.
       * **Throughput**: 2-4x higher than standard systems (FasterTransformer).
+
+---
+
+<!--
+header: Transformer: **CacheBlend Optimization**
+_class: title-page
+-->
+
+## Optimization:
+## **CacheBlend**
+
+###### Handling Multi-Turn & RAG Contexts Efficiently
+
+---
+
+- ###### The Limitation of Prefix Caching
+
+Prefix Caching works great... **IF** the reused text is at the *very beginning*.
+But in RAG (Retrieval-Augmented Generation), we retrieve multiple chunks.
+
+**Input Structure**: `[Chunk A] + [Chunk B] + [Chunk C] + [Query]`
+
+  * **Prefix Caching**: Only helps `[Chunk A]`.
+  * **Chunks B & C**: Their KV caches cannot be reused because their positions changed, and they see new preceding text.
+
+---
+
+![](assets/cache.png)
+
+---
+
+- ###### Why not just concatenate pre-computed KVs?
+
+If we pre-compute KV for Chunk A and Chunk B separately, and then stitch them together ("Full KV Reuse"):
+
+**We lose Cross-Attention\!**
+Chunk B never "saw" Chunk A during pre-computation.
+
+![](assets/attention-loss.png)
+
+---
+
+- ###### The Core Idea: Selective KV Recompute
+
+We don't need to recompute *everything* ($100\%$).
+We don't want to recompute *nothing* ($0\%$, low quality).
+
+**Solution**: Recompute the KV of a **small subset (\~15%)** of tokens that are most affected by the new context.
+
+$$
+KV_{new} \approx KV_{precomputed} + \text{Update}(Tokens_{selected})
+$$
+
+---
+
+- ###### Which tokens to select?
+
+**Insight**: Attention is **Sparse**.
+Only a few tokens in Chunk B strongly attend to Chunk A.
+
+These tokens have **High KV Deviation (HKVD)**.
+
+![](assets/selective-update.png)
+
+---
+
+- ###### Identifying HKVD Tokens
+
+We cannot know the true deviation without full computation.
+**Approximation**: Use a lightweight proxy or gradual filtering.
+
+1.  Compute attention on Layer 1.
+2.  Select Top-K tokens with high attention updates.
+3.  Propagate these indices to deeper layers (HKVD tokens are highly correlated across layers).
+
+> **Result**: We restore generation quality by updating only the most critical tokens.
+
+---
+
+- ###### The Hidden Cost: IO vs. Compute
+
+We established that we need to recompute ~15% of tokens.
+Does this add extra delay?
+
+1.  **Load** Pre-computed KV from Storage (SSD/CPU RAM) to GPU.
+2.  **Recompute** the selected HKVD tokens.
+
+$$\text{Total Latency} = \sum_{i=1}^{L} (T_{load}^{(i)} + T_{compute}^{(i)})$$
+
+**Problem**: If we do this sequentially, every bit adds delay.
+
+---
+
+- ###### The Solution: Pipelining
+
+**Insight**: GPU Compute and Memory Loading (IO) can run in parallel.
+
+While the GPU is busy **recomputing** Layer $i$, we can fetch the KV Cache for **Layer $i+1$** from storage.
+
+---
+
+- ###### The Loading Controller
+
+How do we ensure recomputation doesn't exceed loading time?
+We introduce a **Loading Controller** to balance the equation:
+
+$$T_{recompute}(r\%) \approx T_{load}(\text{Device})$$
+
+**Two Adaptive Strategies**:
+
+1.  **Adjust Ratio**: If IO is slow, increase recompute ratio (up to the limit) since we have "free" time.
+2.  **Select Storage**: If we fix recompute at 15%, pick the **cheapest** storage (e.g., SSD) that is just fast enough to hide the compute.
+
+---
+
+Because we hide computation behind IO, we can store KV Caches on **Slower, Cheaper Media** instead of expensive GPU HBM or CPU RAM.
+
+![](assets/select-ssd.png)
+
+---
+
+- ###### Performance Summary
+
+| Method | TTFT (Speed) | Accuracy | Storage Cost |
+| :--- | :--- | :--- | :--- |
+| **Full Recompute** | Slow ($1\times$) | High | None |
+| **Prefix Caching** | Fast (Start only) | High | High (Duplicates) |
+| **Full KV Reuse** | Fast | **Low** (Bad Quality) | Low |
+| **CacheBlend** | **Fast (2-3x)** | **High** | Low |
