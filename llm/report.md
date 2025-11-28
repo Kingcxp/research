@@ -51,13 +51,11 @@ style: |
   header {
     z-index: 1;
     color: #303133;
-    border-bottom: 1px solid #DCDFE6;
   }
 
   footer {
     z-index: 1;
     color: #303133;
-    border-top: 1px solid #DCDFE6;
   }
 
   img {
@@ -70,11 +68,11 @@ style: |
   }
 
   code {
-    background-color: #F5F7FA;
+    background-color: #303133;
   }
 
   pre {
-    background-color: #F5F7FA;
+    background-color: #303133;
   }
 ---
 
