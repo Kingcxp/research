@@ -879,42 +879,7 @@ But we don't know how long the output will be\!
 
 Inspired by **OS Virtual Memory (Paging)**.
 
-  * **OS**: Maps Logical Pages $\to$ Physical Frames.
-  * **vLLM**: Maps **Logical KV Blocks** $\to$ **Physical KV Blocks**.
-
-\<div class="mermaid"\>
-graph LR
-subgraph Logical [Logical KV Space (Continuous)]
-L1[Block 0: "Four"]
-L2[Block 1: "score"]
-L3[Block 2: "and"]
-end
-
-```
-subgraph Table [Block Table]
-T1[0 -> Phy 7]
-T2[1 -> Phy 1]
-T3[2 -> Phy 3]
-end
-
-subgraph Physical [Physical GPU Memory (Scattered)]
-P1[Phy 1: "score"]
-P2[Phy 3: "and"]
-P3[...]
-P4[Phy 7: "Four"]
-end
-
-L1 --> T1 --> P4
-L2 --> T2 --> P1
-L3 --> T3 --> P2
-
-style Logical fill:#E6A23C,color:white
-style Physical fill:#409EFF,color:white
-```
-
-\</div\>
-
-**Key**: Physical blocks do **NOT** need to be contiguous.
+![](assets/logical-memory.png)
 
 ---
 
@@ -922,20 +887,27 @@ style Physical fill:#409EFF,color:white
 
 We modify the Attention calculation to fetch data block-by-block via the Block Table.
 
+for embedding **$x_i$**，we have **$q_i = W_qx_i, k_i = W_kx_i, v_i = W_vx_i$**
+
+then calculate the attention and output:
+
 $$
-A_{ij} = \frac{\exp(q_i^T K_j / \sqrt{d})}{\sum_{t=1}^{\lceil i/B \rceil} \exp(q_i^T K_{t} / \sqrt{d})}
+a_{ij} = \frac{\exp(q_i^T k_j / \sqrt{d})}{\sum_{t=1}^{i} \exp(q_i^T k_{t} / \sqrt{d})}, o_{ij} = \Sigma_{j=1}^{i} a_{ij} v_{j}
 $$
 
-  - $K_j$: The Key vector in the $j$-th block.
-  - **Process**:
-    1.  Identify logical blocks for current request.
-    2.  Lookup physical addresses in **Block Table**.
-    3.  Fetch non-contiguous blocks from HBM to SRAM.
-    4.  Compute Attention.
+$$(Softmax(x_i) = \frac{e^{x_i}}{\sum_{j=1}^{N} e^{x_j}})$$
 
 ---
 
-  - ###### The Killer Feature: Memory Sharing
+- **Process**:
+  1.  Identify logical blocks for current request.
+  2.  Lookup physical addresses in **Block Table**.
+  3.  Fetch non-contiguous blocks from HBM to SRAM.
+  4.  Compute Attention.
+
+---
+
+- ###### Memory Sharing
 
 Since we use a Block Table, we can map **different logical blocks** to the **same physical block**.
 
@@ -947,39 +919,13 @@ Since we use a Block Table, we can map **different logical blocks** to the **sam
 
 ---
 
-  - ###### Mechanism: Copy-on-Write (CoW)
+- ###### Mechanism: Copy-on-Write (CoW)
 
-\<div class="mermaid"\>
-graph TD
-subgraph Physical\_Memory
-P\_Prompt[Physical Block 1: "Translate..."]
-P\_A[Physical Block 2: "The"]
-P\_B[Physical Block 3: "This"]
-end
-
-```
-subgraph Request_A [Seq A Table]
-LA0[Log 0] --> P_Prompt
-LA1[Log 1] --> P_A
-end
-
-subgraph Request_B [Seq B Table]
-LB0[Log 0] --> P_Prompt
-LB1[Log 1] --> P_B
-end
-
-style P_Prompt fill:#E6A23C,stroke:#333,stroke-width:4px
-```
-
-\</div\>
-
-  * **Prompt Phase**: Both point to Physical Block 1. **Ref Count = 2**.
-  * **Generation**: When Sequence A writes new token, it allocates new Block 2. Block 1 remains untouched.
-  * **Result**: Massive memory savings (up to 55% in Beam Search).
+![](assets/copy-on-write.png)
 
 ---
 
-  - ###### Space Complexity: Near-Zero Waste
+- ###### Space Complexity: Near-Zero Waste
 
 <!-- end list -->
 
@@ -995,7 +941,7 @@ style P_Prompt fill:#E6A23C,stroke:#333,stroke-width:4px
 
 ---
 
-  - ###### Time Complexity & Overhead
+- ###### Time Complexity & Overhead
 
 Does looking up the Block Table slow us down?
 
@@ -1003,24 +949,3 @@ Does looking up the Block Table slow us down?
   * **End-to-End Gain**:
       * Since we save memory, we can increase **Batch Size** significantly.
       * **Throughput**: 2-4x higher than standard systems (FasterTransformer).
-
-| Metric | Impact |
-| :--- | :--- |
-| **Single Request Latency** | Slightly Higher (Overhead) |
-| **System Throughput** | **2-4x Higher** (Larger Batch) |
-
----
-
-<!-- _class: title-page -->
-
-## **Summary of Optimizations**
-
----
-
-  - ###### Summary: From $O(N^2)$ to Efficient Serving
-
-| Technique | Problem Solved | Method | Key Benefit |
-| :--- | :--- | :--- | :--- |
-| **KV Cache** | Redundant Compute | Caching History | $O(N^3) \to O(N^2)$ Time |
-| **FlashAttention** | HBM IO Bottleneck | Tiling & Recompute | $O(N^2) \to O(N)$ Mem, Speedup |
-| **PagedAttention** | Memory Fragmentation | Virtual Memory / Blocks | **Max Batch Size**, High Throughput |
