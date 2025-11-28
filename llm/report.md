@@ -29,7 +29,7 @@ style: |
   section::before {
     content: "";
     position: absolute;
-    background-color: #FFFFFF;
+    background-color: #F2F3F5;
     height: 64px;
     width: 100%;
     top: 0;
@@ -38,7 +38,7 @@ style: |
 
   section::after {
     content: "";
-    background-color: #FFFFFF;
+    background-color: #F2F3F5;
     margin-top: auto;
     height: 64px;
     width: 100%;
@@ -51,11 +51,13 @@ style: |
   header {
     z-index: 1;
     color: #303133;
+    border-bottom: 1px solid #DCDFE6;
   }
 
   footer {
     z-index: 1;
     color: #303133;
+    border-top: 1px solid #DCDFE6;
   }
 
   img {
