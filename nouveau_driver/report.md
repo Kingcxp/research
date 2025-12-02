@@ -121,13 +121,11 @@ The NV45 GPU consists of multiple sub-devices ("Engines") coordinated by the Mas
 
 The CPU communicates with the GPU via three **Base Address Registers (BARs)**.
 
-| BAR | Type | Size (Typ.) | Description | Interaction Method |
+| BAR | Type | Size | Description | Method |
 | :--- | :--- | :--- | :--- | :--- |
-| **BAR 0** | **MMIO** | 16 MB | **Control Plane**. Registers for all engines. | `readl` / `writel` (Intercepted by QEMU) |
-| **BAR 1** | **VRAM** | 512 MB | **Data Plane**. Textures, Framebuffer, PushBuffers. | Direct Memory Access / TTM Mapping |
-| **BAR 2** | **PRAMIN** | 1 MB | **Context Plane**. Channel status, Hash Tables. | Direct Access (Stored as Structs) |
-
-> **Key Insight**: QEMU must emulate **logic** for BAR0, but primarily provide **storage** for BAR1/2.
+| **BAR 0** | **MMIO** | 16 MB |  Registers for all engines. | `readl` / `writel` (Intercepted by QEMU) |
+| **BAR 1** | **VRAM** | 512 MB | Textures, Framebuffer, PushBuffers. | Direct Memory Access / TTM Mapping |
+| **BAR 2** | **PRAMIN** | 1 MB | Channel status, Hash Tables. | Direct Access (Stored as Structs) |
 
 ---
 
@@ -175,7 +173,7 @@ Before execution, the heartbeat of the GPU must be configured.
 
 <!-- _header: Phase 3: Memory & Display Init -->
 
-Initializing VRAM management (TTM) and Kernel Mode Setting (KMS).
+Initializing VRAM management and Kernel Mode Setting.
 
 - **PFB (Framebuffer)**:
   - Read `0x10020C`. **Response**: VRAM Size (e.g., 128MB).
@@ -185,7 +183,8 @@ Initializing VRAM management (TTM) and Kernel Mode Setting (KMS).
   - **I2C/GPIO**: Driver toggles `0x600818`+ to bit-bang I2C.
   - **QEMU Action**: Emulate I2C bus to return a valid **EDID** block.
   - **Modesetting**: Driver writes `HTOTAL`/`VTOTAL` to `0x6xxxxx`.
-  - **Scanout**: Driver writes `0x600808` (`FB_START`). **QEMU Action**: Start reading pixels from VRAM at this offset.
+  - **Scanout**: Driver writes `0x600808` (`FB_START`).
+  -  **QEMU Action**: Start reading pixels from VRAM at this offset.
 
 ---
 
@@ -221,29 +220,13 @@ _header: Runtime Interaction
 
 How a fuzzing payload reaches the simulated GPU.
 
-<div class="mermaid">
-sequenceDiagram
-    participant User as Fuzzer
-    participant DRM as Nouveau (DRM)
-    participant BAR0 as MMIO (QEMU)
-    participant BAR1 as VRAM (QEMU)
-
-    User->>DRM: IOCTL(GEM_PUSHBUF)
-    Note over User,DRM: Payload contains GPU Commands
-    DRM->>BAR1: Write Commands to Push Buffer
-    DRM->>BAR0: Write "Doorbell" (PFIFO_PUT)
-    Note over BAR0,BAR1: GPU Wakes Up
-    BAR0->>BAR1: PFIFO Fetches Commands
-    BAR0->>BAR0: PGRAPH Executes Commands
-    BAR0->>DRM: Raise Interrupt (Completion)
-    DRM->>User: IOCTL Returns
-</div>
+![](assets/payload-sequence.png)
 
 ---
 
 <!-- _header: Key Mechanism: The Doorbell -->
 
-The **Doorbell** mechanism is the primary trigger for GPU execution.
+The **Doorbell** mechanism is the primary trigger for GPU.
 
 1.  **Setup**: Driver fills a command buffer in **BAR 1 (VRAM)**.
 2.  **Trigger**: Driver writes to `NV03_PFIFO_CACHE1_PUT` (Offset `0x0032xx` in BAR0).
@@ -315,12 +298,4 @@ _header: QEMU Implementation
   1.  Driver loads without error (dmesg: `Nouveau: Found chip NV45`).
   2.  Display initializes (VBlank interrupts active).
   3.  `PUSHBUF` IOCTL triggers MMIO doorbell and data fetch.
-- **Current Status**: Mapped out all critical MMIO addresses and initialization sequences from Kernel Source (`nv40.c`, `base.c`).
-
----
-
-<!-- _class: title-page -->
-
-# **Thank You**
-
-### Q & A
+- **Current Status**: Mapping out all critical MMIO addresses and initialization sequences from Kernel Source (`nv40.c`, `base.c`).
