@@ -325,7 +325,7 @@ Given tokens $x_1, ..., x_{t-1}$, predict $x_t$.
 
 - ###### Zooming into the **Decoder**: The generation process
 
-Its layer is similar to the **Encoder**, but a little different:
+Its layer is similar to the **Encoder**:
 
 ![](assets/translate-loop.png)
 
@@ -455,7 +455,7 @@ $$
 
 - ###### The Grand Summary: Why we need optimization?
 
-We face two main enemies in the standard Transformer:
+We face a main enemy in the standard Transformer:
 
 | Problem | Symptom | Source | Solution |
 | :--- | :--- | :--- | :--- |
@@ -677,8 +677,6 @@ Two key techniques:
 - ###### Technique 1: Tiling (Forward Pass)
 
 Instead of computing the full $N \times N$ matrix, we  try to **split $Q, K, V$ into blocks** that fit in **SRAM**.
-
-![](assets/split.png)
 
 ---
 
@@ -1075,14 +1073,3 @@ $$T_{recompute}(r\%) \approx T_{load}(\text{Device})$$
 Because we hide computation behind IO, we can store KV Caches on **Slower, Cheaper Media** instead of expensive GPU HBM or CPU RAM.
 
 ![](assets/select-ssd.png)
-
----
-
-- ###### Performance Summary
-
-| Method | TTFT (Speed) | Accuracy | Storage Cost |
-| :--- | :--- | :--- | :--- |
-| **Full Recompute** | Slow ($1\times$) | High | None |
-| **Prefix Caching** | Fast (Start only) | High | High (Duplicates) |
-| **Full KV Reuse** | Fast | **Low** (Bad Quality) | Low |
-| **CacheBlend** | **Fast (2-3x)** | **High** | Low |
