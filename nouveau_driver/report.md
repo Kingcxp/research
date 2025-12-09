@@ -13,6 +13,10 @@ style: |
     font-size: 28px;
   }
 
+  li {
+    font-size: 28px
+  }
+
   section {
     position: relative;
     font-family: Bahnschrift;
@@ -60,7 +64,7 @@ style: |
   }
 
   img {
-    max-height: 55vh;
+    max-height: 60vh;
     max-width: 100%;
   }
 
@@ -293,110 +297,278 @@ When `nouveau_drm_exit` is called, the hardware must be quieted safely.
 
 ---
 
-### MC (`nv17_mc`): The Central Hub
+### MC (Master Control): The Interrupt Router
 
-**Role**: Manages global interrupt routing and engine states.
+**Address Space:** BAR0 `0x000000 - 0x001FFF`
+**Role:** The central hub that enables other engines and routes their interrupts to the CPU.
 
-* **Initialization**:
-    * **Enable Engines**: Writes `0xffffffff` to **`0x000200`** to wake up all units.
-    * **ROM Access**: Writes `0x00000001` to **`0x001850`** to disable ROM visibility.
-* **Interrupt Handling (`nv04_mc_intr`)**:
-    * **Status**: Reads **`0x000100`** (+ leaf offsets) to identify which engine (FIFO, PGRAPH, etc.) triggered an IRQ.
-    * **Rearm**: Writes `1` to **`0x000140`** to re-enable interrupts after handling.
+1.  **Boot:** The driver writes `0xFFFFFFFF` to `0x000200` to enable all sub-devices (FIFO, GR, etc.). QEMU must mark these engines as "Active".
+2.  **Runtime:** When a sub-device (e.g., Timer) triggers an event, MC sets a bit in the **Stat Register** (`0x000100`).
+3.  **Interaction:** The driver reads `0x000100` to find the source, handles it, and writes `0x000140` to re-arm the interrupt line.
+ 
+---
+
+### MC (Master Control): The Interrupt Router
+
+![](assets/mc-logic.png)
 
 ---
 
-### TIMER (`nv41_timer`): Synchronization
+### TIMER: The Heartbeat
 
-**Role**: Provides a stable nanosecond timebase for driver delays and timeouts.
-
-* **Calibration (`nv41_timer_init`)**:
-    * Driver calculates divider values ($m, n, d$) based on crystal frequency.
-    * Writes to **`0x009220`** (m-1), **`0x009200`** (n), **`0x009210`** (d).
-* **Runtime Operation**:
-    * **Read Time**: Returns 64-bit timestamp via **`0x009400`** (Low) and **`0x009410`** (High).
-    * **Alarms**: Writes alarm target to **`0x009420`**. When reached, triggers IRQ at **`0x009100`**.
+**Address Space:** BAR0 `0x009000 - 0x009FFF`
+**Role:** Provides a monotonic 64-bit nanosecond timestamp and handles alarm interrupts.
+1.  **Calibration:** The driver writes dividers ($m, n, d$) to `0x009220`/`0x009200`. QEMU must calculate the tick rate based on this.
+2.  **Operation:** QEMU must increment the 64-bit value at `0x009400` (Low) + `0x009410` (High) continuously.
+3.  **Handshake:** If `0x009400` does not change between two reads, the driver assumes the GPU is frozen and panics.
+4.  **Interrupt:** The driver writes `0x009420` to trigger timer, timer would count down and trigger the interrupt at `0x009100`.
 
 ---
 
-### FB (`nv40_fb`): VRAM Management
+### FB (PFB): VRAM Manager
 
-**Role**: Manages VRAM aperture, tags, and memory compression settings.
+**Address Space:** BAR0 `0x100000` + BAR1 (Actual Memory)
+**Role:** Controls VRAM layout, size detection, and memory tiling (compression).
 
-* **Probe & Setup (`nv40_ram_new`)**:
-    * **Detect Type**: Reads **`0x001218`** to identify memory generation.
-    * **Detect Size**: Reads **`0x10020c`** to determine total VRAM size.
-    * **Partitions**: Reads **`0x100200`** to configure memory controllers.
-* **Configuration**:
-    * **Tags**: Accesses **`0x100320`** for Framebuffer Tag memory.
-    * **Tile Programming**: Configures memory tiling regions (Limit/Pitch/Address) at **`0x100240`** series.
+1.  **Discovery:** The driver reads `0x10020c` to detect VRAM size (e.g., 512MB) and `0x001218` for memory type.
+2.  **Tiling:** The driver defines "Tiles" (rectangular memory regions) by writing to `0x100240`. QEMU must map these BAR0 registers to internal logic that translates addresses.
+3.  **Interaction:** When the CPU accesses BAR1 (VRAM aperture), PFB translates linear addresses into physical video memory addresses.
 
 ---
 
-### DEVINIT: The Bootstrap
+### FB (PFB): VRAM Manager
 
-**Role**: Handles legacy VGA compatibility and Clock (PLL) setup.
-
-* **VGA Ownership (`nv04_devinit_preinit`)**:
-    * Arbitrates ownership via register **`0x44`**.
-    * Uses `nvkm_wrport` to unlock CRTC registers (Port **`0x03d4`**).
-* **Clock Setup (`nv40_clk_prog`)**:
-    * Configures **PLLs** (Phase Locked Loops) to set Core/Memory frequencies.
-    * Manipulates **`0x00c040`** (Control) and **`0x004000`** (NPLL).
-    * *Crucial for Simulation:* QEMU must emulate the PLL locking behavior or the driver will timeout waiting for clocks to stabilize.
+![](assets/pfb.png)
 
 ---
 
-### FIFO (`nv40_fifo`): The Workhorse
+### FIFO: Command Scheduler
 
-**Role**: Fetches commands from DMA/VRAM and pushes them to PGRAPH.
+**Address Space:** BAR0 `0x002000` (Control) + BAR0 `0x800000` (User/Doorbell)
+**Role:** The engine that pulls commands from memory and feeds them to the execution unit.
 
-![](assets/fifo.png)
-
-* **Initialization (`nv40_fifo_init`)**:
-    * **Timeouts**: Configures retry limits at **`0x002040`**.
-    * **Context Structures**: Sets RAMHT location (**`0x002210`**) and RAMFC base (**`0x002220`**).
-* **Activation**:
-    * Enables **Push** (**`0x003200`**) and **Pull** (**`0x003250`**) engines.
-
----
-
-### FIFO: Runtime Management
-
-The FIFO engine is heavily interrupt-driven for context switching.
-
-* **Interrupt Handling (`nv04_fifo_intr`)**:
-    * **Reassign**: Reads **`0x002500`** to handle cache reassignment requests.
-    * **Semaphores**: Checks **`0x00326c`** for synchronization primitives.
-    * **Channel ID**: Reads **`0x003204`** to verify which channel is currently active.
-* **Pausing**:
-    * To safely switch contexts, the driver writes **`0`** to **`0x002500`** (Disable Cache) and **`0x003250`** (Stop Puller).
+1.  **Setup:** The driver allocates **RAMHT** (Hash Table) and **RAMFC** (Context) in VRAM and tells FIFO where they are (`0x002210`).
+2.  **The Loop:**
+    * **Push:** Driver writes commands to a PushBuffer (DMA).
+    * **Kick:** Driver writes the channel ID to a **Doorbell** register.
+    * **Pull:** FIFO wakes up, reads the `PUT` pointer, fetches data via DMA, and sends it to PGRAPH.
 
 ---
 
-### GR (`nv40_gr`): The Rendering Core
+### FIFO: Command Scheduler
 
-**Role**: Executes the actual 3D/2D drawing commands.
-
-* **Initialization (`nv40_gr_init`)**:
-    * **Sanitize**: Clears Context Register **`0x40032c`**.
-    * **Debug Config**: Sets specific pipeline behavior via **`0x400084`** and **`0x40008c`**.
-    * **Pipe Control**: Configures internal pipeline states at **`0x400820`**.
-* **Exception Handling**:
-    * If an invalid command is sent, PGRAPH raises an interrupt at **`0x400100`**.
-    * The driver reads this to kill the offending channel without crashing the kernel.
+![](assets/pfifo.png)
 
 ---
 
-### Register Map Summary (QEMU Focus)
+### GR (PGRAPH): The Graphics Engine
 
-| Block | Offset Range | Critical Function |
-| :--- | :--- | :--- |
-| **MC** | `0x000000 - 0x001FFF` | Interrupts, Device ID, Endianness |
-| **FIFO** | `0x002000 - 0x003FFF` | Push/Pull Control, RAMHT, RAMFC |
-| **TIMER**| `0x009000 - 0x009FFF` | Timebase, Alarms |
-| **FB** | `0x100000 - 0x100FFF` | VRAM Config, Tile Regions |
-| **GR** | `0x400000 - 0x40FFFF` | Graphics Context, Pipeline Config |
-| **CRTC** | `0x600000 - 0x602FFF` | Display Output (Head 0/1) |
+**Address Space:** BAR0 `0x400000 - 0x40FFFF`
+**Role:** Executes the actual drawing commands (3D/2D) received from FIFO.
 
-*Simulation Strategy*: Focus on implementing **MC**, **TIMER**, and **FIFO** logic first. GR can initially be a "black box" that consumes data without rendering.
+1.  **Context:** Before drawing, PGRAPH loads a "Context" (State) from memory. The driver initializes this by clearing `0x40032c`.
+2.  **Pipeline:** It processes "Methods" (Commands).
+    * *Method*: `SetShader` -> QEMU loads internal shader state.
+    * *Method*: `DrawTriangle` -> QEMU executes software rasterization.
+3.  **Exceptions:** If an invalid method is sent, GR triggers an interrupt at `0x400100`. The driver reads `0x40013c` to debug it.
+
+---
+
+### GR (PGRAPH): The Graphics Engine
+
+![](assets/pgraph.png)
+
+---
+
+### PCI & BUS Interface
+
+**Address Space:** PCI Config Space + BAR0 `0x001000`
+**Role:** Handles initial hardware detection, endianness, and bus errors.
+
+1.  **Endianness:** At boot, the driver reads `0x000004`. QEMU must return `0x0` (Little Endian) or the driver will attempt to flip the bytes.
+2.  **Identification:** Returns the Device ID (NV45) and Vendor ID at `0x000000`.
+3.  **Safety:** The `BUS` unit monitors for invalid memory accesses. If the driver accesses an unmapped address, `nv32_bus_intr` fires. QEMU must report the faulting address at `0x009084`.
+
+<div class="mermaid">
+graph LR
+    Host[Host Driver] -->|PCI Read| Config[PCI Config Space]
+    Host -->|Read 0x04| Endian{Endian Check}
+    Endian -- 0x0 --> Good[Continue Probe]
+    Endian -- Else --> Flip[Force Big Endian]
+    Host -->|Bad Access| BusError[Bus Logic]
+    BusError -->|Write Addr| Reg_9084[0x009084]
+    BusError -->|IRQ| MC
+</div>
+
+---
+
+### DEVINIT: Legacy VGA & PLL Setup
+
+**Address Space:** VGA Ports (`0x03x4`) + PLL Regs
+**Role:** Handles the transition from VGA text mode to High-Res graphics and configures clocks.
+
+1.  **VGA Ownership:** The driver reads **`0x44`** to check if it owns the bus. It writes `0` to **`0x03d5`** (via `nvkm_wrport`) to disable the legacy CRTC slave mode.
+2.  **PLL Config:** The driver calculates $N/M/P$ coefficients and writes them to **`0x004000`** (NPLL) and **`0x004008`** (SPLL).
+3.  **Interaction:** QEMU must intercept port `0x03d4`/`0x03d5` IO writes to satisfy the legacy VGA handshake.
+
+<div class="mermaid">
+graph LR
+    Driver[Driver Init] -->|Read 0x44| VGA_Owner{VGA Owner?}
+    VGA_Owner -- HW Active --> Unlock[Unlock CRTC 0x3d4]
+    Unlock -->|Write Data| PLL[Program PLLs]
+    PLL -->|0x00C040| Clocks[Stable Clocks]
+</div>
+
+---
+
+### GPIO (`nv10_gpio`): Pin Control
+
+**Address Space:** BAR0 `0x001104` (Intr) + `0x6008xx` (Lines)
+**Role:** Controls external pins (Fan PWM, Panel Power) and monitors inputs (Hotplug Detect).
+
+1.  **Pin Mapping:** Driver writes to different registers based on line number:
+    * **Lines 0-1**: `0x600818` (16 bits/line).
+    * **Lines 2-9**: `0x60081c` (4 bits/line).
+2.  **Interrupts:** Driver masks interrupts via **`0x001144`**. When a pin changes state, QEMU must set the bit in **`0x001104`** and trigger the MC IRQ.
+
+<div class="mermaid">
+sequenceDiagram
+    participant Driver
+    participant GPIO_Regs
+    participant External
+    
+    Driver->>GPIO_Regs: Unmask IRQ (0x1144)
+    External->>GPIO_Regs: Pin State Change (Line 2)
+    GPIO_Regs->>GPIO_Regs: Set Status Bit (0x1104)
+    GPIO_Regs->>Driver: Trigger MC Interrupt
+    Driver->>GPIO_Regs: Write 0x1104 (Ack)
+</div>
+
+---
+
+### DISP (`nv04_disp`): CRTC & VBlank
+
+**Address Space:** BAR0 `0x600000` (CRTC0) / `0x602000` (CRTC1)
+**Role:** Generates video timing signals. Crucial for `vsync` logic.
+
+1.  **VBlank Interrupts:** The driver waits for vertical blanking intervals to swap buffers.
+2.  **Mechanism:** QEMU should run a timer (60Hz). When fired:
+    * Write `1` to **`0x600100`** (CRTC0 VBlank Pending).
+    * Trigger MC Interrupt.
+3.  **Handling:** The driver's ISR reads `0x600100`, acknowledges it by writing `1`, and wakes up any threads waiting on `drm_vblank_wait`.
+
+---
+
+### IMEM (`nv40_instmem`): GPU Object Storage
+
+**Address Space:** BAR2 (PRAMIN) / VRAM Aperture
+**Role:** Manages the "Instance Memory" heap—where Page Tables, Channel Contexts (RAMFC), and Object descriptors live.
+
+1.  **Initialization:** The driver reserves a block of VRAM for "Instance Memory" and aligns it to 4KB.
+2.  **Object Creation:** When creating a channel, the driver writes the **RAMFC** structure into this space via BAR2 or BAR1.
+3.  **Role in QEMU:** This is purely memory management. However, QEMU's **FIFO** and **MMU** engines must know *where* this region starts to fetch context data correctly.
+
+---
+
+### MPEG (`nv44_mpeg`) & SW (`nv10_sw`)
+
+**Role:** Specialized engines for Video Decoding and Software Methods.
+
+* **MPEG Engine:**
+    * **Function:** Hardware acceleration for MPEG2 decoding.
+    * **Simulation:** Can be stubbed initially. It works like GR: receives methods via FIFO. If simulated, it processes bitstream data from VRAM.
+* **SW (Software) Class:**
+    * **Function:** Handles synchronization barriers (Semaphores) and VBlank waits within the command stream.
+    * **Simulation:** QEMU must handle the `0x00000104` (DMA_NOTIFY) method to signal completion to the host driver.
+
+---
+
+### I2C (`nv04_i2c`) & THERM (`nv40_therm`)
+
+**Role:** Monitor health and query external devices.
+
+* **I2C (Bus):**
+    * **Logic:** The driver toggles bits in `0x000200` or specific GPIO ports to bit-bang I2C traffic.
+    * **Task:** QEMU should respond to EDID reads (monitor detection) if simulating a connected display.
+* **THERM (Thermal):**
+    * **Logic:** Monitors temperature.
+    * **Clock Gating:** The driver calls `nvkm_therm_clkgate_enable` to save power. QEMU can ignore the power saving aspect but must accept the register writes to prevent errors.
+
+---
+
+### MMU (`nv04_mmu`): Virtual Memory & GART
+
+**Role:** Translates GPU virtual addresses to Physical System RAM (GART) or VRAM.
+**Crucial for:** `User-Space` isolation and large texture mapping.
+
+1.  **GART Setup:** The driver allocates a "GART Table" (Page Table) in system RAM and tells the GPU its base address via **MC** or **FIFO** registers.
+2.  **Translation:**
+    * When PGRAPH accesses a virtual address (e.g., a texture), MMU walks the page table.
+    * **QEMU Task:** You must intercept memory accesses that fall into the **GART Aperture** (usually in BAR1 or BAR2) and redirect them to the correct Guest RAM offset.
+3.  **Invalid Access:** If a translation fails, MMU raises a `Page Fault` interrupt.
+
+<div class="mermaid">
+graph LR
+    GPU_Engine[PGRAPH Engine] -->|Virtual Addr 0xCAFE| MMU
+    MMU -->|Lookup| PageTable[GART Table in RAM]
+    PageTable -->|Phys Addr 0x8000| SystemRAM
+    MMU --x|Fault| MC_IRQ[Interrupt MC]
+</div>
+
+---
+
+### DMA (`nv04_dma`): Moving Data
+
+**Role:** Offloads memory copy tasks from the CPU. Used for transferring textures from System RAM to VRAM.
+
+1.  **DMA Classes:** The driver initializes DMA objects (`NV_DMA_FROM_MEMORY`, `NV_DMA_TO_MEMORY`).
+2.  **Operation:**
+    * Driver pushes a `COPY` method into the FIFO.
+    * Specifies `Source Address`, `Destination Address`, and `Length`.
+3.  **QEMU Implementation:**
+    * When the DMA engine receives the launch command, perform a `cpu_physical_memory_rw` in QEMU to copy the buffer instantly.
+    * Trigger an interrupt upon completion to notify the driver.
+
+---
+
+### The Complete Simulation Stack
+
+Visualizing the boundary between the Host (QEMU) and the Guest (Nouveau).
+
+<div class="mermaid">
+graph TD
+    subgraph Guest_OS_Kernel
+    Nouveau[Nouveau Driver]
+    DRM[DRM Subsystem]
+    end
+
+    subgraph QEMU_Hardware_Emulation
+    BAR0[BAR0: MMIO Intercept]
+    BAR1[BAR1: VRAM/GART]
+    
+    MC[MC: IRQ Router]
+    FIFO[FIFO: Scheduler]
+    TIMER[TIMER: Clock]
+    GR[PGRAPH: Rendering]
+    end
+
+    Nouveau -->|Read/Write| BAR0
+    Nouveau -->|Map| BAR1
+    BAR0 -->|Dispatch| MC
+    BAR0 -->|Dispatch| FIFO
+    BAR0 -->|Dispatch| TIMER
+    FIFO -->|Push Methods| GR
+    MC -->|Raise IRQ| Nouveau
+</div>
+
+---
+
+## Summary: The Simulation Strategy
+
+To successfully boot **Nouveau** on QEMU/NV45:
+
+1.  **Mock the MC & TIMER**: Prevent the driver from timing out or failing IRQ checks.
+2.  **Implement BAR0 MMIO**: Route reads/writes to the correct sub-device structs.
+3.  **Enable FIFO**: Allow the driver to update `PUT` pointers.
+4.  **Stub PGRAPH**: Accept methods without crashing, even if drawing nothing.
+5.  **Handle VBlank**: Fire periodic interrupts from `DISP` to keep the UI responsive.
