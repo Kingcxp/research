@@ -389,16 +389,9 @@ When `nouveau_drm_exit` is called, the hardware must be quieted safely.
 2.  **Identification:** Returns the Device ID (NV45) and Vendor ID at `0x000000`.
 3.  **Safety:** The `BUS` unit monitors for invalid memory accesses. If the driver accesses an unmapped address, `nv32_bus_intr` fires. QEMU must report the faulting address at `0x009084`.
 
-<div class="mermaid">
-graph LR
-    Host[Host Driver] -->|PCI Read| Config[PCI Config Space]
-    Host -->|Read 0x04| Endian{Endian Check}
-    Endian -- 0x0 --> Good[Continue Probe]
-    Endian -- Else --> Flip[Force Big Endian]
-    Host -->|Bad Access| BusError[Bus Logic]
-    BusError -->|Write Addr| Reg_9084[0x009084]
-    BusError -->|IRQ| MC
-</div>
+---
+
+![](assets/pbus.png)
 
 ---
 
@@ -411,13 +404,11 @@ graph LR
 2.  **PLL Config:** The driver calculates $N/M/P$ coefficients and writes them to **`0x004000`** (NPLL) and **`0x004008`** (SPLL).
 3.  **Interaction:** QEMU must intercept port `0x03d4`/`0x03d5` IO writes to satisfy the legacy VGA handshake.
 
-<div class="mermaid">
-graph LR
-    Driver[Driver Init] -->|Read 0x44| VGA_Owner{VGA Owner?}
-    VGA_Owner -- HW Active --> Unlock[Unlock CRTC 0x3d4]
-    Unlock -->|Write Data| PLL[Program PLLs]
-    PLL -->|0x00C040| Clocks[Stable Clocks]
-</div>
+---
+
+### DEVINIT: Legacy VGA & PLL Setup
+
+![](assets/devinit.png)
 
 ---
 
@@ -431,18 +422,11 @@ graph LR
     * **Lines 2-9**: `0x60081c` (4 bits/line).
 2.  **Interrupts:** Driver masks interrupts via **`0x001144`**. When a pin changes state, QEMU must set the bit in **`0x001104`** and trigger the MC IRQ.
 
-<div class="mermaid">
-sequenceDiagram
-    participant Driver
-    participant GPIO_Regs
-    participant External
-    
-    Driver->>GPIO_Regs: Unmask IRQ (0x1144)
-    External->>GPIO_Regs: Pin State Change (Line 2)
-    GPIO_Regs->>GPIO_Regs: Set Status Bit (0x1104)
-    GPIO_Regs->>Driver: Trigger MC Interrupt
-    Driver->>GPIO_Regs: Write 0x1104 (Ack)
-</div>
+---
+
+### GPIO (`nv10_gpio`): Pin Control
+
+![](assets/pgpio.png)
 
 ---
 
@@ -507,13 +491,11 @@ sequenceDiagram
     * **QEMU Task:** You must intercept memory accesses that fall into the **GART Aperture** (usually in BAR1 or BAR2) and redirect them to the correct Guest RAM offset.
 3.  **Invalid Access:** If a translation fails, MMU raises a `Page Fault` interrupt.
 
-<div class="mermaid">
-graph LR
-    GPU_Engine[PGRAPH Engine] -->|Virtual Addr 0xCAFE| MMU
-    MMU -->|Lookup| PageTable[GART Table in RAM]
-    PageTable -->|Phys Addr 0x8000| SystemRAM
-    MMU --x|Fault| MC_IRQ[Interrupt MC]
-</div>
+---
+
+### MMU (`nv04_mmu`): Virtual Memory & GART
+
+![](assets/pmmu.png)
 
 ---
 
@@ -531,44 +513,4 @@ graph LR
 
 ---
 
-### The Complete Simulation Stack
-
-Visualizing the boundary between the Host (QEMU) and the Guest (Nouveau).
-
-<div class="mermaid">
-graph TD
-    subgraph Guest_OS_Kernel
-    Nouveau[Nouveau Driver]
-    DRM[DRM Subsystem]
-    end
-
-    subgraph QEMU_Hardware_Emulation
-    BAR0[BAR0: MMIO Intercept]
-    BAR1[BAR1: VRAM/GART]
-    
-    MC[MC: IRQ Router]
-    FIFO[FIFO: Scheduler]
-    TIMER[TIMER: Clock]
-    GR[PGRAPH: Rendering]
-    end
-
-    Nouveau -->|Read/Write| BAR0
-    Nouveau -->|Map| BAR1
-    BAR0 -->|Dispatch| MC
-    BAR0 -->|Dispatch| FIFO
-    BAR0 -->|Dispatch| TIMER
-    FIFO -->|Push Methods| GR
-    MC -->|Raise IRQ| Nouveau
-</div>
-
----
-
-## Summary: The Simulation Strategy
-
-To successfully boot **Nouveau** on QEMU/NV45:
-
-1.  **Mock the MC & TIMER**: Prevent the driver from timing out or failing IRQ checks.
-2.  **Implement BAR0 MMIO**: Route reads/writes to the correct sub-device structs.
-3.  **Enable FIFO**: Allow the driver to update `PUT` pointers.
-4.  **Stub PGRAPH**: Accept methods without crashing, even if drawing nothing.
-5.  **Handle VBlank**: Fire periodic interrupts from `DISP` to keep the UI responsive.
+![](assets/simulation.png)
