@@ -713,6 +713,7 @@ The softmax of vector $x\in R^B$ is computed as:
 
 - $m(x) = \underset{i}{\max}\ x_i$
 - $f(x) = [e^{x_1 - m(x)}\ \ldots\ e^{x_B - m(x)}]$
+- $l(x) = \underset{i}{\Sigma}f(x)_i$
 - $softmax(x) = \frac{f(x)}{l(x)}$
 
 ---

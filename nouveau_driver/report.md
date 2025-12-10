@@ -131,69 +131,6 @@ The CPU communicates with the GPU via three **Base Address Registers (BARs)**.
 
 ---
 
-<!-- _header: Sub-Devices -->
-
-1.  **bios** - **BIOS** (Basic Input/Output System)
-    * Responsible for handling the graphics card's BIOS information, including initialization parameters and hardware configuration.
-2.  **bus** - **Bus Interface**
-    * Responsible for managing the communication interface between the **GPU** and the system bus.
-3.  **clk** - **Clock Controller**
-    * Responsible for clock generation, distribution, and frequency adjustment for various components within the **GPU**.
-
----
-
-4.  **devinit** - **Device Initialization**
-    * Responsible for the initial setup and configuration of the **GPU** hardware.
-5.  **fb** - **Framebuffer**
-    * Responsible for managing video memory (VRAM) and the framebuffer, handling the storage of graphics data.
-6.  **gpio** - **General Purpose Input/Output**
-    * Responsible for controlling the general-purpose pins on the **GPU**, used for various hardware control functions.
-
----
-
-7.  **i2c** - **I2C Bus Controller**
-    * Responsible for the **I2C** communication protocol, used to communicate with displays and other peripherals.
-8.  **imem** - **Instruction Memory**
-    * Responsible for managing the **GPU**'s instruction storage area, storing the microcode to be executed.
-9.  **mc** - **Memory Controller**
-    * Responsible for managing **GPU** memory access and memory mapping.
-
----
-
-10. **mmu** - **Memory Management Unit**
-    * Responsible for virtual-to-physical address translation, managing the **GPU**'s address space.
-11. **pci** - **PCI Interface Controller**
-    * Responsible for managing the interface and communication between the **GPU** and the **PCI** bus.
-12. **therm** - **Thermal Management**
-    * Responsible for monitoring **GPU** temperature and managing the cooling system.
-
----
-
-13. **timer** - **Timer**
-    * Responsible for providing timing functions and a time base.
-14. **volt** - **Voltage Regulator**
-    * Responsible for the regulation and management of the **GPU** core voltage.
-15. **disp** - **Display Controller**
-    * Responsible for managing display output, including signal generation and display mode control.
-
----
-
-16. **dma** - **Direct Memory Access**
-    * Responsible for managing direct memory transfers between various **GPU** components.
-17. **fifo** - **Command FIFO** (First In, First Out)
-    * Responsible for managing and scheduling the **GPU** command queue, ensuring commands are executed in order.
-18. **gr** - **Graphics Rendering Engine**
-    * Responsible for processing **3D** graphics rendering and **2D** graphics acceleration.
-
----
-
-19. **mpeg** - **MPEG Decoder**
-    * Responsible for hardware **MPEG** video decoding acceleration.
-20. **sw** - **Software Objects**
-    * Responsible for managing objects and operations at the software level.
-
----
-
 <!-- _header: The Fuzzing Loop (IOCTL Flow) -->
 
 How a fuzzing payload reaches the simulated GPU.
@@ -297,6 +234,23 @@ When `nouveau_drm_exit` is called, the hardware must be quieted safely.
 
 ---
 
+### BIOS: VBIOS & Configuration
+
+**Role**: Provides critical hardware parameters (Voltage tables, Clock limits, Scripts) that the driver cannot guess.
+
+**Process**:
+1.  **Shadowing**: The driver reads the ROM from PCI space or PRAMIN.
+2.  **Parsing**: It looks for data tables (Condition Table, Scripts).
+3.  **Execution**: The driver runs "Init Scripts" (opcode-based) to set up registers that are too complex to hardcode.
+
+---
+
+### BIOS: VBIOS & Configuration
+
+![](assets/vbios.png)
+
+---
+
 ### MC (Master Control): The Interrupt Router
 
 **Address Space:** BAR0 `0x000000 - 0x001FFF`
@@ -304,7 +258,7 @@ When `nouveau_drm_exit` is called, the hardware must be quieted safely.
 
 1.  **Boot:** The driver writes `0xFFFFFFFF` to `0x000200` to enable all sub-devices (FIFO, GR, etc.). QEMU must mark these engines as "Active".
 2.  **Runtime:** When a sub-device (e.g., Timer) triggers an event, MC sets a bit in the **Stat Register** (`0x000100`).
-3.  **Interaction:** The driver reads `0x000100` to find the source, handles it, and writes `0x000140` to re-arm the interrupt line.
+3.  **Interaction:** The driver reads `0x000100` to find the source, handles it, and writes `0x000140` to allow the interrupt to be forwared to the CPU.
  
 ---
 
@@ -392,6 +346,36 @@ When `nouveau_drm_exit` is called, the hardware must be quieted safely.
 ---
 
 ![](assets/pbus.png)
+
+---
+
+### CLK: Phase Locked Loops (PLL)
+
+**Role**: Converts the base crystal frequency (e.g., 27MHz) into high-speed core/memory clocks (e.g., 400MHz).
+
+**Process**:
+1.  **Calc**: Driver calculates $N, M, P$ coefficients based on target frequency.
+2.  **Prog**: Writes coefficients to **VPLL** (Video) or **NVPL** (Core) registers (`0x0040xx`).
+3.  **Lock**: Waits for the PLL to stabilize (lock).
+
+---
+
+### CLK: Phase Locked Loops (PLL)
+
+![](assets/pclock.png)
+
+---
+
+### VOLT: Voltage Regulator
+
+**Role**: Ensures the GPU receives the correct voltage level (VID) for the requested clock speed.
+
+**Process**:
+1.  **Lookup**: Driver checks the VBIOS Voltage Table to find the required voltage for a power state (e.g., "3D Performance").
+2.  **Set**: Driver adjusts voltage, often by writing to specific GPIO pins or a dedicated voltage register (e.g., `0x001584`).
+3.  **Wait**: Delays clock changes until voltage is stable.
+
+![](assets/volt.png)
 
 ---
 
