@@ -225,7 +225,10 @@ To attack a graph optimally, we often need to calculate gradients for **all poss
 
 ---
 
-<!-- _class: title-page -->
+<!--
+_class: title-page
+header: Robustness of GNNs at Scale
+-->
 
 ## Robustness of GNNs at Scale
 #### **NeurIPS 2021**
@@ -242,15 +245,59 @@ On large graphs with small budgets, CE wastes energy attacking nodes that are **
 
 ---
 
-### **Solution: Tanh Margin**
+### **Deep Dive: The Problem with Cross Entropy (CE)**
 
-The paper proposes **Tanh Margin Loss**. 
+To attack a model, we usually maximize the **Cross Entropy Loss**.
+$$\mathcal{L}_{CE} = - \log(p_{correct\_class})$$
 
-- **Focus**: Ignore nodes that are already misclassified.
-- **Target**: Concentrate purely on nodes close to the **decision boundary** (the "fence-sitters").
+-   It wants the probability of the correct class ($p_{correct}$) to be **0**.
+-   Even if the node is already misclassified (e.g., $p_{correct} = 0.4$, predicted class is wrong), CE is **not satisfied**. It pushes $p_{correct}$ towards $0.0001$.
 
-**Result**:
-> The attack strength effectively **doubles** compared to standard methods. 
+> CE has an "Infinite Appetite". It keeps attacking nodes that are **already dead** (misclassified).
+
+---
+
+### **Why CE Fails at Scale (Global Attack)**
+
+Imagine you have **1 Million Nodes** but budget to flip only **1,000 Edges**.
+
+**The CE Trap:**
+1.  **Gradients**: CE generates huge gradients for nodes that are "very wrong" (low confidence).
+2.  **Budget Waste**: The attack spends the limited budget making "wrong" nodes "more wrong" (e.g., probability $0.4 \rightarrow 0.01$).
+3.  **Outcome**: The **Accuracy** (0/1 count) doesn't change! You wasted ammo on dead targets.
+
+> We need a loss function that says: **"This node is dead, move on to the next one!"**
+
+---
+
+### **Solution: Defining the "Margin"**
+
+First, let's look at the **Logits** (raw output $z$) instead of Probabilities.
+
+We define the **Classification Margin** $\psi$:
+$$\psi = z_{correct} - \max_{c \neq correct} z_{c}$$
+
+-   **$\psi > 0$**: Node is **Correct** (Safe).
+-   **$\psi < 0$**: Node is **Wrong** (Misclassified).
+-   **$\psi \approx 0$**: Node is on the **Decision Boundary** (Fence-sitter).
+
+*Our Goal: Only attack when $\psi > 0$ but close to 0.*
+
+---
+
+### **The "Magic" of Tanh Margin**
+
+The paper proposes a new loss: **Tanh Margin**.
+$$\mathcal{L}_{Tanh} = \tanh(\psi) = \tanh(z_{correct} - z_{best\_other})$$
+
+**How the Gradients Work (The Math of Tanh):**
+The derivative of $\tanh(x)$ is $1 - \tanh^2(x)$. This is a **Bell Curve**!
+
+-   **If $\psi \ll 0$ (Already Wrong):** Gradient $\approx 0$. **(Stop Attacking)** 
+-   **If $\psi \gg 0$ (Too Safe):** Gradient $\approx 0$. **(Ignore)**
+-   **If $\psi \approx 0$ (Boundary):** Gradient is **MAX**. **(Attack Here!)**
+
+*Result: The attack strictly targets the most vulnerable nodes.*
 
 ---
 
@@ -277,6 +324,32 @@ Instead of looking at the whole graph, we look at a small random **Block** at a 
 
 ---
 
+### **How PR-BCD Actually Works (Step-by-Step)**
+
+We treat the adjacency matrix $A$ as a set of continuous probabilities $P_{ij} \in [0,1]$.
+
+**The Loop:**
+1.  **Sample**: Randomly pick a small block of $b$ edges (e.g., $10^5$ out of $10^{12}$).
+2.  **Gradient**: Calculate gradients **only** for these $b$ edges.
+3.  **Update**: Adjust the probability of flipping these edges.
+4.  **Project**: Ensure the sum of probabilities fits our Budget $\Delta$.
+
+---
+
+### **The "Survival of the Fittest" Heuristic**
+
+How do we find the best edges if we don't look at all of them?
+
+**Resampling Strategy**:
+At the end of every epoch, we look at our block of $b$ edges:
+- **Keep**: The edges with high flip probabilities (The "Strong" attackers).
+- **Discard**: The edges with low probabilities (The "Weak" ones).
+- **Refill**: Randomly sample new edges from the graph to replace the discarded ones.
+
+*Result: Over time, the block accumulates the most vulnerable edges in the graph.*
+
+---
+
 ### **Challenge 3: Defending the Graph**
 
 GNNs aggregate messages from neighbors.
@@ -298,6 +371,40 @@ The paper introduces **Soft Median** aggregation.
 
 ---
 
+### **Implementing Soft Median**
+
+Standard Median is **sorting**, which breaks backpropagation (gradients can't flow through "sort").
+
+**Soft Median** approximates it using a **Weighted Average**:
+
+$$\mu_{\text{Soft}} = \sum_{x \in \text{Neighbors}} w_x \cdot x$$
+
+The "magic" is in how we calculate the weights $w_x$.
+
+---
+
+### **The Weight Calculation**
+
+We want **Outliers** (attacked edges) to have **Zero Weight**.
+
+1.  Calculate **Distance** $d_i$ between node $i$ and the dimension-wise median.
+2.  Compute Weight using **Softmax**:
+
+$$w_i = \text{Softmax}\left( - \frac{d_i}{T} \right)$$
+
+- If distance $d_i$ is **High** (Outlier) $\rightarrow w_i \approx 0$ (Ignored).
+- If distance $d_i$ is **Low** (Normal) $\rightarrow w_i$ is high.
+
+---
+
+The temperature parameter $T$ controls the "Softness".
+
+![](assets/soft-median.png)
+
+By tuning $T$, we can ignore adversarial attacks.
+
+---
+
 ### **Experimental Results**
 
 The authors tested on **Papers100M** (111 million nodes). 
@@ -311,7 +418,10 @@ The authors tested on **Papers100M** (111 million nodes).
 
 ---
 
-<!-- _class: title-page -->
+<!--
+_class: title-page
+header: SGA: Simplified Gradient-based Attack
+-->
 
 ## SGA: Simplified Gradient-based Attack
 #### **TKDE 2021**
@@ -408,3 +518,123 @@ $$DAC = \frac{\mathbb{E}_r(|r_G - r_{G'}|)}{r_G}$$
 - **Lower DAC** = Harder to detect (Better for attacker).
 - SGA achieves low DAC while being extremely fast. 
 
+---
+
+<!--
+_class: title-page
+header: GRB: Graph Robustness Benchmark
+-->
+
+## GRB: Graph Robustness Benchmark
+#### **NeurIPS 2021**
+
+---
+
+### **The "Wild West" of GNN Security**
+
+Before this paper, comparing different defense methods was like comparing **Apples to Oranges**.
+
+- **Different Datasets**: One paper uses *Cora*, another uses *Reddit*.
+- **Different Settings**: One assumes the attacker knows everything (White-box), another assumes nothing (Black-box).
+- **Tiny Scales**: Most defenses only worked on graphs with < 5,000 nodes.
+
+> **Problem**: We don't know which defense is actually robust in the real world. 
+
+---
+
+### **The 3 Major Flaws in Previous Benchmarks**
+
+1.  **Unrealistic Assumptions**:
+    Attackers often assume they can modify *any* edge. In reality, you can't just delete a Facebook friendship between two strangers. 
+2.  **Lack of Unity**:
+    No standardized protocol. Paper A attacks 5% of nodes; Paper B attacks 10%. Results are incomparable. 
+3.  **Scalability Issues**:
+    Existing benchmarks ignored large graphs. A defense that works on 1,000 nodes might crash on 1 million. 
+
+---
+
+#### **GRB: The Unified Framework**
+
+GRB proposes a standardized pipeline to fix these issues.
+
+![](assets/GRB-framework.png)
+
+It focuses on **Reproducibility** and **Realism**. 
+
+---
+
+### **Scenario 1: Modification (The Classic View)**
+
+Attackers modify the **Existing Structure** of the graph.
+
+-   **Action**: Add/Remove edges between existing nodes.
+-   **Perturb Features**: Change the attributes of a user.
+-   **Reality Check**: Hard to do in real life. (Requires hacking the database or compromising specific users). 
+
+---
+
+### **Scenario 2: Injection (The Realistic View)**
+
+GRB emphasizes **Graph Injection Attacks**.
+
+Instead of hacking existing users, the attacker creates **New Malicious Nodes**.
+
+> **Analogy**: Creating "Bot Accounts" on Twitter to follow and interact with real users to change their classification (e.g., make a real user look like a bot). 
+
+---
+
+### **Visualizing Injection Attack**
+
+![](assets/GRB-attack.png)
+
+---
+
+### **The Unified Rules**
+
+To make comparisons fair, GRB sets strict rules:
+
+1.  **Black-box**: Attackers know the graph data, but **NOT** the model weights or defense strategy. 
+2.  **Inductive**: The model is trained on one set of nodes, but attacked on **Unseen Nodes** (New users). 
+3.  **Evasion**: The attack happens during **Inference** (Deployment), not during training. 
+
+---
+
+### **Data: From Tiny to Huge**
+
+GRB includes 5 datasets to test **Scalability**.
+
+| Dataset | Type | Nodes | Edges | Scale |
+| :--- | :--- | :--- | :--- | :--- |
+| **grb-cora** | Citation | ~2.6k | ~5k | Tiny |
+| **grb-flickr** | Social | ~89k | ~450k | Medium |
+| **grb-reddit** | Social | ~232k | ~11.6M | **Large** |
+| **grb-aminer** | Academic | ~659k | ~2.8M | **Large** |
+
+
+
+---
+
+### **Not All Nodes are Equal**
+
+GRB discovered that **Degree** (number of connections) determines robustness.
+
+-   **Low Degree**: Easy to attack. (Few friends = easy to influence).
+-   **High Degree**: Hard to attack. (Many friends = stable opinion).
+
+**The Splitting Scheme**:
+GRB splits the test set into **Easy, Medium, and Hard** subsets based on node degree to analyze defenses in depth. 
+
+---
+
+### **The "Arms Race" Leaderboard**
+
+A defense isn't good if it only stops *one* specific attack.
+GRB evaluates a **Matrix** of battles.
+
+This prevents "overfitting" a defense to a specific attack method. 
+
+---
+
+$$\text{Score} = \text{Weighted Average against ALL Attacks}$$
+
+![](assets/GRB-defense.png)
