@@ -91,7 +91,7 @@ _class: title-page
 ## Catalog
 - **Background**
   - Graph
-  - Graph Neuro Network
+  - Graph Neural Network
   - Adversal Attack
 - **Why Large Scale Graph**
 - **How to**
@@ -128,16 +128,19 @@ But it requires the data to be **Sequential**
 
 ---
 
-## **Graph Neural Network**
+## **Graph Neural Network (GNN)**
 
-If we need to use neural network on a graph, we have to convert the graph into a **Sequence**.
+Standard Neural Networks (like CNN/RNN) require **Grid** or **Sequence** data.
+Graphs differ: **No fixed order**, **Variable neighbors**.
 
-This causes the loss of information:
-- **Nodes** are in order, but the order does not matter in graph.
-- **Edges** are not considered.
-- We cannot percept the **Graph Structure**.
+**The Solution: Message Passing**
+Each node becomes a "collector", gathering info from friends.
 
-So we need to find a better way to convert **Nodes** into **Vectors**.
+---
+
+## **Graph Neural Network (GNN)**
+
+![](assets/GNN-gathering.png)
 
 ---
 
@@ -171,6 +174,16 @@ where $\sigma$ is the activation function, and $\textcircled{+}$ is combination 
 - **Recommendation System**: Item Recommendation, User Preference Prediction
 - **NLP**: Relation Extraction
 - etc.
+
+---
+
+#### **Why do we Attack Graphs?**
+
+It is not just about being malicious; it's about **Safety**.
+
+-   **Financial Fraud**: Fraudsters disguise themselves by connecting to normal users.
+-   **Social Botnet**: Bots follow real celebrities to look "real".
+-   **Robustness Testing**: Finding bugs before the bad guys do.
 
 ---
 
@@ -422,101 +435,87 @@ The authors tested on **Papers100M** (111 million nodes).
 _class: title-page
 header: SGA: Simplified Gradient-based Attack
 -->
-
 ## SGA: Simplified Gradient-based Attack
-#### **TKDE 2021**
+#### **The Art of "Less is More"**
+(TKDE 2021)
 
 ---
 
-In the previous section, we talked about the **Scale** problem.
+### **The Bottleneck of Global Attacks**
 
-**SGA** proposes a lightweight framework to attack GNNs on large graphs efficiently.
+Standard gradient attacks (like PGD) need to calculate gradients for **every possible edge**.
 
-- **Core Idea**: We don't need the whole graph. A smaller **Subgraph** is enough! 
-- **Key Technique**: Gradient Calibration. 
+-   **Graph Size**: $N$ nodes.
+-   **Possible Edges**: $N^2$ (Dense Matrix).
+-   **For Reddit Dataset**: $230,000$ nodes $\rightarrow$ $53$ Billion possible edges.
 
----
+**Result**: GPU Memory Overflow (OOM) 💥.
 
-### **The Intuition**
-
-Imagine you want to influence a specific person (Target Node).
-Do you need to analyze the relationships of everyone in the world?
-
-**No.** You only need to focus on:
-1.  Their direct friends.
-2.  Friends of friends.
-
-**SGA** simplifies the calculation by extracting a **$k$-hop subgraph** centered at the target. 
+> **SGA's Question**: Do we really need the *entire* graph to attack *one* node?
 
 ---
 
-#####   **Visualizing the Simplification**
+### **Step 1: Subgraph Extraction**
 
-![](assets/SGA.png)
+**Intuition**: The "Butterfly Effect" in GNNs is limited.
+A change 10 hops away usually won't affect the target node significantly.
 
-By ignoring irrelevant nodes, the memory usage drops from $O(N^2)$ or $O(|E|)$ to the size of the subgraph ($d^k$). 
+**SGA Strategy**:
+Extract a **$k$-hop subgraph** centered at the target node (usually $k=2$).
 
----
-
-### **Problem: The "Overconfidence" Trap**
-
-When we try to attack a trained GNN model, we often use **Gradients** to find the weak spot.
-
-However, trained models are often **Overconfident**:
-- Prediction for "Class A": **99.99%**
-- Prediction for "Class B": **0.01%**
-
-When the probability is close to 1 or 0, the **Gradient becomes almost Zero**.
-$\rightarrow$ The attacker learns nothing! (Gradient Vanishing) 
+-   **Reduced Space**: From $N$ nodes to just local neighbors (~100s).
+-   **Efficiency**: Computations become instantaneous.
 
 ---
 
-### **Solution: Scale Factor $\epsilon$**
+### **Step 2: Enlarging the Search Space**
 
-SGA introduces a **Scale Factor** ($\epsilon$) to calibrate the model output during the attack phase. 
-
-$$Z^{(sub)} = \text{softmax}(\frac{\hat{A}^{(sub)}XW}{\epsilon})$$
-
-- By dividing the logits by $\epsilon$ (e.g., $\epsilon=5.0$), the distribution becomes flatter.
-- **Result**: The gradients are recovered, allowing the attacker to find the best edges to flip. 
+Just deleting existing edges is not enough. We want to **Add** malicious edges.
+But connecting to *whom*?
 
 ---
 
-### **Attack Strategy: Constructing the Subgraph**
+**Potential Nodes**:
+SGA identifies nodes outside the subgraph that carry strong "wrong class" signals.
 
-SGA doesn't just delete edges; it can also **Add** edges. But adding edges is expensive (too many choices).
+![](assets/SGA-attack.png)
 
-**Strategy**:
-1.  Extract $k$-hop neighbors (usually $k=2$).
-2.  Identify a small set of **Potential Nodes** outside the subgraph (nodes likely to belong to a different class). 
-3.  Add these potential nodes to the subgraph calculation.
-
-This allows powerful "Influence Attacks" without processing the whole graph. 
+We add these **Potential Nodes** to the subgraph to calculate their gradients.
 
 ---
 
-## **Are We Being Noticed?**
+### **Step 3: The "Vanishing Gradient" Problem**
 
-An attack is bad if it's easily detected.
-*e.g., A user suddenly adds 100 new friends in 1 second.*
+We use a simplified model (SGC) to get gradients: $\nabla = \frac{\partial \mathcal{L}}{\partial A}$.
 
-How do we measure if an attack is **Stealthy**?
-- **Previous methods**: Check Degree Distribution (Complex math). 
-- **SGA Proposal**: **DAC (Degree Assortativity Change)**. 
+**The Trap**:
+If the model is **Too Confident** (e.g., Probability = 0.9999), the loss curve is flat.
+$$\text{Flat Curve} \rightarrow \text{Gradient} \approx 0$$
+
+The attacker gets **No Signal** on how to improve the attack.
 
 ---
 
-### **Degree Assortativity Change (DAC)**
+### **Step 4: Gradient Calibration**
 
-**Assortativity**: "Do birds of a feather flock together?"
-In social networks, high degree nodes tend to connect with high degree nodes.
+**Solution**: Introduce a Scale Factor $\epsilon$ (Temperature).
 
-**DAC** measures how much this "connection pattern" changes before and after the attack. 
+$$P = \text{Softmax}\left( \frac{\text{Logits}}{\epsilon} \right)$$
 
-$$DAC = \frac{\mathbb{E}_r(|r_G - r_{G'}|)}{r_G}$$
+By dividing logits by $\epsilon$ (e.g., $\epsilon=5.0$):
+1.  The probability distribution becomes **Softer**.
+2.  The gradients become **Non-Zero**.
+3.  The attacker "sees" the direction again.
 
-- **Lower DAC** = Harder to detect (Better for attacker).
-- SGA achieves low DAC while being extremely fast. 
+---
+
+### **Step 5: The Iterative Attack Loop**
+
+SGA attacks sequentially to be precise.
+
+![](assets/attack-loop.png)
+
+> **Note**: If we add an edge to a distant node, we must **Update the Subgraph** to include that node's neighbors for the next step.
 
 ---
 
@@ -573,13 +572,25 @@ Attackers modify the **Existing Structure** of the graph.
 
 ---
 
-### **Scenario 2: Injection (The Realistic View)**
+### **Scenario 2: Graph Injection (Realism)**
 
-GRB emphasizes **Graph Injection Attacks**.
+**Modification Attack** (Modifying existing edges) is hard in reality.
+> *You cannot force two strangers on Facebook to become friends.*
 
-Instead of hacking existing users, the attacker creates **New Malicious Nodes**.
+**Injection Attack** (Adding new nodes) is realistic.
+> *You CAN create 100 fake bot accounts and have them follow the target.*
 
-> **Analogy**: Creating "Bot Accounts" on Twitter to follow and interact with real users to change their classification (e.g., make a real user look like a bot). 
+GRB focuses heavily on this **Injection** scenario.
+
+---
+
+## **Summary**
+
+| Paper | Problem | Key Innovation | Takeaway |
+| :--- | :--- | :--- | :--- |
+| **Robustness at Scale** | Memory $O(N^2)$ | **PR-BCD**: Random Block Sampling<br>**Tanh Margin**: Better Loss | Optimize sparse blocks; Stop attacking dead nodes. |
+| **SGA** | Time Complexity | **Subgraph**: Ignore far nodes<br>**Calibration**: Fix vanishing grad | Local info is enough; Scale factor matters. |
+| **GRB** | Evaluation Chaos | **Standardization**: Unified Pipeline<br>**Leaderboard**: Matrix Evaluation | Focus on **Injection** attacks and **Scalable** datasets. |
 
 ---
 
