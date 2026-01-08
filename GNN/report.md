@@ -6,7 +6,7 @@ paginate: true
 math: katex
 backgroundColor: #FFFFFF
 color: #303133
-footer: GNN: Adversal Attack and Defence | Chen Qi @ 2025
+footer: GNN: Adversarial Attack and Defence | Chen Qi @ 2025
 style: |
   p {
     margin: 16px;
@@ -77,12 +77,12 @@ style: |
 ---
 
 <!--
-header: GNN: Adversal Attack and Defence
+header: GNN: Adversarial Attack and Defence
 _class: title-page
 -->
 
 ## GNN: 
-## **Adversal Attack and Defence**
+## **Adversarial Attack and Defence**
 
 ---
 
@@ -92,7 +92,7 @@ _class: title-page
 - **Background**
   - Graph
   - Graph Neural Network
-  - Adversal Attack
+  - Adversarial Attack
 - **Why Large Scale Graph**
 - **How to**
   - Related Work
@@ -122,7 +122,7 @@ The **Edges** can either be directed or undirected.
 
 ![](assets/fully-connected-neuro-network.png)
 
-**Neuro Network** can convert some vector into another vector.
+**Neural Network** can convert some vector into another vector.
 
 But it requires the data to be **Sequential**
 
@@ -187,7 +187,7 @@ It is not just about being malicious; it's about **Safety**.
 
 ---
 
-<!-- header: Background: Adversal Attack -->
+<!-- header: Background: Adversarial Attack -->
 
 #### **Adversarial Attack**
 
@@ -285,7 +285,7 @@ Imagine you have **1 Million Nodes** but budget to flip only **1,000 Edges**.
 
 ### **Solution: Defining the "Margin"**
 
-First, let's look at the **Logits** (raw output $z$) instead of Probabilities.
+First, let's look at the **Logits** (raw output $z$) instead.
 
 We define the **Classification Margin** $\psi$:
 $$\psi = z_{correct} - \max_{c \neq correct} z_{c}$$
@@ -304,13 +304,11 @@ The paper proposes a new loss: **Tanh Margin**.
 $$\mathcal{L}_{Tanh} = \tanh(\psi) = \tanh(z_{correct} - z_{best\_other})$$
 
 **How the Gradients Work (The Math of Tanh):**
-The derivative of $\tanh(x)$ is $1 - \tanh^2(x)$. This is a **Bell Curve**!
+The derivative of $\tanh(x)$ is $1 - \tanh^2(x)$.
 
 -   **If $\psi \ll 0$ (Already Wrong):** Gradient $\approx 0$. **(Stop Attacking)** 
 -   **If $\psi \gg 0$ (Too Safe):** Gradient $\approx 0$. **(Ignore)**
 -   **If $\psi \approx 0$ (Boundary):** Gradient is **MAX**. **(Attack Here!)**
-
-*Result: The attack strictly targets the most vulnerable nodes.*
 
 ---
 
@@ -358,8 +356,6 @@ At the end of every epoch, we look at our block of $b$ edges:
 - **Keep**: The edges with high flip probabilities (The "Strong" attackers).
 - **Discard**: The edges with low probabilities (The "Weak" ones).
 - **Refill**: Randomly sample new edges from the graph to replace the discarded ones.
-
-*Result: Over time, the block accumulates the most vulnerable edges in the graph.*
 
 ---
 
@@ -649,3 +645,419 @@ This prevents "overfitting" a defense to a specific attack method.
 $$\text{Score} = \text{Weighted Average against ALL Attacks}$$
 
 ![](assets/GRB-defense.png)
+
+---
+
+<!--
+header: TDGIA: Topological Defective Graph Injection Attack
+_class: title-page
+-->
+
+## TDGIA
+#### **KDD 2021**
+
+---
+
+### **Attack Scenario: Modification vs. Injection**
+
+**Graph Modification Attack (GMA)**:
+> "I will hack the database and delete the friendship between Alice and Bob."
+> *Unrealistic: Requires high-level server access.* 
+
+**Graph Injection Attack (GIA)**:
+> "I will create a fake account (Bot) and follow Alice."
+> *Realistic: Anyone can sign up for a new account.* 
+
+---
+
+### **Visualizing the Difference**
+
+![](assets/graph-attacks.png)
+
+**TDGIA** focuses on the **Injection** scenario (Right). 
+
+---
+
+### **The Two Big Questions**
+
+When you inject a "Bot" node into a graph, it starts as a blank slate. To do damage, you must answer two questions:
+
+1.  **Who do I connect to?** (Topological Structure)
+    * We need to pick targets that are "vulnerable".
+2.  **What do I post?** (Node Features)
+    * We need to generate content that tricks the GNN.
+
+**TDGIA** solves these with a two-step framework. 
+
+---
+
+### **Step 1: Topological Defective Edge Selection**
+
+How does a GNN update a node's status? By **Weighted Aggregation**.
+
+$$h_v^{(k)} = \text{Combine}\left( h_v^{(k-1)}, \sum_{u \in Neighbors} w_{uv} \cdot h_u^{(k-1)} \right)$$
+
+TDGIA analyzes these weights ($w_{uv}$) to find the "weakest spots" in the graph. 
+
+---
+
+### **Finding the Vulnerable Targets**
+
+Different GNNs (GCN, GraphSAGE) use different normalization weights. TDGIA combines them to define a **Defect Score** $\lambda_v$:
+
+$$\lambda_{v} = k_{1}\frac{1}{\sqrt{deg(v) \cdot d}} + k_{2}\frac{1}{deg(v)}$$
+
+-   $deg(v)$: Degree of the target node.
+-   $d$: Budget (max degree of our bot).
+
+> This formula aims to simulate the weight function during aggregation process of different GNNs.
+
+---
+
+### **Step 2: Smooth Adversarial Optimization**
+
+Now we have connections. We need to generate the **Features** (content) for the Bot.
+**The Problem with Standard Loss (e.g., Cross Entropy):**
+-   **Gradient Explosion**: If the model is very wrong ($p \approx 0$), gradients go to $\infty$.
+-   **Gradient Vanishing**: If the model is confident ($p \approx 1$), gradients go to $0$.
+
+> Unstable gradients make it hard to "learn" the perfect fake features. 
+
+---
+
+### **The Solution: Smooth Loss**
+
+TDGIA uses a custom **Smooth Loss** function to keep training stable:
+
+$$\mathcal{L}_{v} = \max(r + \ln p_{v}, 0)^{2}, p\in(0, 1]$$
+
+$$
+\frac{\partial \mathcal{L}_{v}}{\partial p_{v}} = 
+\begin{cases} 
+\frac{2(r + ln\ p_{v})}{p_{v}} & p_{v} > e^{-r} \\
+0 & p_{v} \leq e^{-r}
+\end{cases}
+$$
+
+-   It creates a "buffer zone" where gradients behave nicely.
+-   It prevents the attack from being "too greedy" or "giving up". 
+
+---
+
+### **Handling Feature Constraints**
+
+Real systems detect outliers. If valid features are $[-1, 1]$, and our attack generates $100$, we get caught.
+
+**Standard Way (Clipping)**:
+If $x > 1$, force $x = 1$. $\rightarrow$ **Gradient becomes 0** (Learning stops).
+
+**TDGIA Way (SmoothMap)**:
+Remaps values using `Sin` and `Cos` functions.
+$$\text{Smoothmap}(x, \text{min}, \text{max}) = \frac{\text{max} + \text{min}}{2} + \frac{\text{max} - \text{min}}{2} \times \sin(x)$$
+Gradients **never** die, allowing continuous optimization. 
+
+---
+
+### **Comparison: KDD-CUP 2020**
+
+TDGIA was tested against the top defenders from the KDD-CUP competition.
+
+| Attack Method | Method Type | Weighted Accuracy Reduction |
+| :--- | :--- | :--- |
+| **u1234** (Comp. Winner) | Unknown | **3.70%** |
+| **TDGIA** (Proposed) | Injection + Smooth Opt | **8.08%** |
+
+TDGIA causes **double** the damage of the competition winner. 
+
+---
+
+### **Why TDGIA Wins**
+
+1.  **Scalability**:
+    It does not require complex Reinforcement Learning (like NIPA). It runs efficiently on large graphs ($O(T)$ complexity). 
+2.  **Transferability**:
+    It attacks the **Topological** weakness (Equation logic), which is shared by almost all GNNs (GCN, SAGE, GIN). 
+3.  **Stability**:
+    The **Smooth** optimization ensures we find the best attack features without crashing the math. 
+
+---
+
+<!--
+header: GCORN: Graph Convolutional Orthonormal Robust Networks
+_class: title-page
+-->
+
+## GCORN
+#### **ICLR 2024**
+*Bridging Theory and Practice in Feature Robustness*
+
+---
+
+### **The Missing Piece: Feature Attacks**
+
+Most previous works (like PR-BCD, GRB) focus heavily on **Structural Attacks** (Edges).
+But **Feature Attacks** are equally dangerous.
+
+**Example**:
+- **E-commerce**: Changing the description of a product to evade fraud detection.
+- **Social Media**: A bot changing its profile text to look human.
+
+> **GCORN** focuses on making GCNs robust against changes in **Node Features** ($X$), not just structure ($A$).
+
+---
+
+### **Theory: Worst-Case vs. Expected**
+
+Existing defenses often look for the **Worst-Case** scenario (The single most damaging attack).
+GCORN proposes **Expected Adversarial Robustness**.
+
+**Why?**
+Worst-case is often too pessimistic and computationally expensive to find.
+**Expected Robustness** measures how likely the model is to fail in a "ball" around the input.
+
+---
+
+### **Theory: Worst-Case vs. Expected**
+
+![](assets/worst-expected.png)
+
+---
+
+### **The "Butterfly Effect" in GCNs**
+
+How does a small change in input features ($\epsilon$) become a wrong prediction?
+It gets **Amplified** layer by layer.
+
+$$h^{(l)} = \sigma( \tilde{A} h^{(l-1)} W^{(l)} )$$
+
+The **Weight Matrix** $W$ acts as a multiplier.
+If $W$ has a large magnitude (Norm), small noise explodes.
+
+![](assets/butterfly-effects.png)
+
+---
+
+### **The Mathematical Bound**
+
+The authors derived a theoretical **Upper Bound** for the vulnerability.
+
+$$\text{Vulnerability} \le \prod_{l=1}^{L} \| W^{(l)} \|\epsilon(\Sigma_{u\in V}\hat{w_u})/\sigma$$
+The vulnerability is directly proportional to the product of the **Norms** of the weight matrices ($\|W\|$).
+
+-   **Big $\|W\|$** $\rightarrow$ High Vulnerability (Unstable).
+-   **Small $\|W\|$** $\rightarrow$ Low Vulnerability (Robust).
+
+---
+
+### **The Solution: Controlling the Norm**
+
+We want to minimize the upper bound.
+**Goal**: Make $\prod \|W^{(l)}\|$ as small as possible.
+**Constraint**: We can't make $W = 0$ (The model won't learn anything).
+**The Sweet Spot: Orthonormality**
+An **Orthonormal Matrix** has a spectral norm of exactly **1**.
+$$\| W \|_2 = 1 \quad \text{if} \quad W^T W = I$$
+
+> If every layer has $\|W\|=1$, then the amplification factor is $1 \times 1 \dots = 1$.
+
+---
+
+### **Visualizing Orthonormality**
+
+Why is an Orthonormal matrix "safe"?
+It only performs **Rotation** . It never **Stretches** (Scales) the vector.
+
+![](assets/matrixies.png)
+
+---
+
+### **How GCORN Works (The Algorithm)**
+
+During training, before every forward pass, we project $W$ to the closest orthonormal matrix $\hat{W}$.
+$$\hat{W}_{k+1} = \hat{W}_k \left(I + \frac{1}{2}Q_k + ... + (-1)^p \binom{-1/2}{p} Q_k^p\right)$$
+-   **Iterative**: Uses a Taylor expansion formula (Newton-Schulz iteration).
+-   **Differentiable**: We can backpropagate through this process!
+-   **Low Cost**: Only takes a few iterations to converge.
+
+---
+
+### **A New Way to Measure: Probabilistic Evaluation**
+
+Instead of running a specific attack (like PGD or Nettack), they use a specific formulation to measure the robustness.
+
+$$Adv_{\epsilon}^{\alpha,\beta}[f] = \mathbb{E}_{\substack{(G,X) \sim \mathcal{D}_{\mathcal{G},\mathcal{X}} \\ (\tilde{G},\tilde{X}) \in B^{\alpha,\beta}(G,X,\epsilon)}} \left[ 1\left\{ d_{\mathcal{Y}}(f(\tilde{G},\tilde{X}), f(G,X)) > \sigma \right\} \right]$$
+
+- $\mathbb{E}$: Expected value over the distribution.
+- $B^{\alpha,\beta}(G,X,\epsilon)$: Ball of radius $\epsilon$ around $(G,X)$.
+- $d_{\mathcal{Y}}$: Distance metric.
+- $1\left\{\cdot\right\}$: Indicator function (1 if true, 0 otherwise).
+
+---
+
+### **Experimental Results**
+
+**Performance (Accuracy under Feature Attack):**
+
+| Method | Clean Accuracy | Attacked Accuracy (Random) | Attacked Accuracy (PGD) |
+| :--- | :--- | :--- | :--- |
+| **Standard** | 79.2% | 68.4% | 54.1% |
+| **GCORN** | **79.8%** | **77.1%** | **71.1%** |
+
+-   **Takeaway 1**: GCORN maintains high accuracy even when attacked.
+-   **Takeaway 2**: Unlike other defenses, it doesn't sacrifice Clean Accuracy (sometimes even improves it!).
+
+---
+
+### **Why GCORN Matters?**
+
+1.  **Theoretical Guarantee**: It's not just a heuristic; it's based on mathematically bounding the Lipschitz constant of the network.
+2.  **Architecture Agnostic**: The idea of "Orthonormal Weights" can be applied to GCN, GAT, GIN, or any Deep Learning model.
+3.  **Stability**: It solves the "Exploding Gradient" problem implicitly, making training deeper GNNs easier.
+
+---
+
+<!--
+header: GOttack: Universal Adversarial Attacks via Graph Orbits
+_class: title-page
+-->
+
+## GOttack
+#### **ICLR 2025**
+
+---
+
+### **A New Perspective: Topology**
+
+Previous methods (like **SGA**) focused on **Local Neighborhoods**.
+> *"I will attack the neighbors of the target."*
+
+**GOttack** asks a different question:
+> *"Does the **Shape** of the connection matter?"*
+
+Instead of looking at *who* connects to whom, we look at the **structural role** (Topology) of the nodes.
+
+---
+
+### **Concept: Graphlets (The "Lego Bricks")**
+
+A **Graphlet** is a small, connected subgraph pattern (usually 3 to 5 nodes).
+Think of them as the atomic building blocks of a network.
+
+![](assets/graphlets.png)
+
+Any large graph is made up of millions of these tiny shapes.
+
+---
+
+### **Concept: Orbits (The "Position")**
+
+Within a Graphlet, not all nodes are equal. Their **Position** is called an **Orbit**.
+
+**Example:** In a 3-node Line (A-B-C):
+- **Nodes A & C**: Are at the ends. They are topologically equivalent (Symmetric). They share **Orbit 1**.
+- **Node B**: Is in the center. It is unique. It occupies **Orbit 2**.
+
+> **Orbit = Structural Role**
+
+---
+
+### **Concept: Graph Orbit Vector(GOV)**
+
+There are **30** distinct graphlets of **5-nodes**, creating **73** distinct orbits
+
+$GOV_v$ of a node $v$ is an **73-dimensional** vector, where each dimension corresponds to **the count** of a specific orbit touched by node $v$
+
+---
+
+### **The Discovery: Periphery Orbits**
+
+The authors analyzed successful attacks from older models (like Nettack).
+They found a **Universal Pattern**:
+
+Most successful attacks target nodes belonging to **Orbit 15** and **Orbit 18**.
+
+| Orbit 15 (Tail) | Orbit 18 (Edge) |
+| :---: | :---: |
+| Nodes at the **end** of a 5-node chain. | Nodes just off the center, creating a "peninsula". |
+
+---
+
+### **Why Orbits 15 & 18? (The Intuition)**
+
+These orbits represent the **Periphery** (The edge of a community).
+
+1.  **Distance**: They are topologically "far" from the dense center of a cluster.
+2.  **Difference**: In graphs, "far" usually means "different label".
+3.  **Influence**: Connecting a target node to these "far" nodes introduces a strong **Conflicting Signal** without looking too suspicious.
+
+---
+
+### **The "Peninsula" Effect**
+
+Connecting to a dense center is obvious. Connecting to a tail is subtle.
+
+![](assets/peninsula.png)
+
+---
+
+### **The Attack Goal**
+The goal is to the graph's structure so that the classification of node $v$ changes from $y_v$ to $y_v^{'}$.
+The proposed attacks can be mathematically formulated as a bi-level optimization problem.
+$$\arg\max_{(A', X) \in G'} \max_{y_{v'} \neq y_v} \ln Z_{v, y_{v'}}^* - \ln Z_{v, y_v}^*$$
+
+- $Z^* = f_{\theta^*}(A', X)$: the probability distribution.
+- $\theta^* = \arg\min_{\theta} L(\theta; A', X)$: the optimal parameters.
+
+---
+
+### **The GOttack Pipeline**
+
+How to attack using this knowledge?
+
+![](assets/gottack-pipeline.png)
+
+1.  **Count Orbits**: Use the **ORCA** algorithm
+2.  **ORCA**: $O(|E|\times d + |V|\times d^4)$, $d$ is the maximum degree.
+3.  **Filter**: Only keep those in "Periphery Orbits".
+4.  **Optimize**: Use gradients only on this small list.
+
+---
+
+### **The Optimize Process**
+
+We use **Surrogate Loss** to simulate the prediction of the model.
+
+The approximate probability distribution distribution of GNN:
+$$Z' = softmax\left( \hat{A}^2 X W \right)$$
+
+The attack goal is to maximize the difference between the probability of the true label and the probability of the predicted label:
+
+$$L_s(A', X; W, v) = \max_{y_{v'} \neq y_v} \left[ \hat{A}^2 X W \right]_{v, y_{v'}} - \left[ \hat{A}^2 X W \right]_{v, y_v}$$
+
+---
+
+### **Why is this Scalable?**
+
+Remember the **$O(N^2)$** problem?
+
+-   **Global Attacks**: Check $N \times N$ edges.
+-   **SGA**: Checks $K$-hop neighbors (Local).
+-   **GOttack**: Checks only **Topologically Vulnerable** nodes.
+
+The Orbit Discovery is linear $O(E)$.
+The candidate set is drastically reduced (often by 75-80%).
+
+---
+
+### **Results: Accuracy vs Efficiency**
+
+GOttack is not just fast; it breaks models better.
+
+| Method | Misclassification Rate (Higher is Better) | Time (Lower is Better) |
+| :--- | :--- | :--- |
+| **Nettack** | 47% | Slow |
+| **SGA** | 32% | Fast |
+| **PR-BCD** | 42% | Medium |
+| **GOttack** | **52%** | **Very Fast** |
+
+*Average results across standard benchmarks.*
