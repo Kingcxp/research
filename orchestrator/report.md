@@ -63,6 +63,10 @@ style: |
     max-width: 100%;
   }
 
+  .whole-page {
+    max-height: 70vh !important;
+  }
+
   strong {
     color: #409EFF !important;
   }
@@ -73,6 +77,10 @@ style: |
 
   pre {
     background-color: #303133;
+  }
+  
+  td {
+    font-size: 24px;
   }
 ---
 
@@ -162,8 +170,72 @@ ACL 2024
 
 ---
 
-- **How do we use large models in our daily life?**
+- **What is `Hallucination`?**
 
-For one API call, we send a prompt to the model and get a response.
+The LLM generates a response that looks reasonable but is actually completely wrong.
 
-This can only solve one question **at once**.
+- Hallucination can't be solved with increasing the model size, especially on facts that appears in a low frequency.
+- The Hallucination problem is more severe in the long-text generation task.
+
+In this paper, we need to solve this issue.
+
+---
+
+- **How to fix it?**
+
+In the paper, the authors discover that:
+- LLMs are more likely to mistake in long-text generation tasks, but can generate more accurate results in short-text generation tasks that only focus on a single fact.
+
+---
+
+<img class="whole-page" src="./assets/versus.png" />
+
+---
+
+- **Solution: Chain-of-Verification(CoVe)**
+
+This method contains four steps:
+
+- Generate baseline response
+- Plan verifications
+- Execute verifications
+- Generate final response
+
+---
+
+- **Step 2: Plan verifications**
+
+Conditioned on the original query and the baseline response, the model is prompted to generate a series of verification questions that test the factual claims in the original baseline response.
+
+The paper perform such verification planning by providing a few-shot prompt of (response, verification) demonstrations to the LLM
+
+---
+
+- **Step 3: Execute verifications**
+
+We have four different approach to execute verifications:
+
+| Name | Method | Feature |
+| --- | --- | --- |
+| `Joint` | Plan and execute by using a single LLM prompt | Easy but can possibly repeat the hallucination. |
+| `2 Step` | Plan and execute by using two LLM prompts | Prevent the issue in `Joint` method. |
+| `Factored` | Answer all questions independently as separate prompts | Is more precise, but more expensive. |
+| `Factor+Revise` | Using an extra LLM prompt to revise the response | The best approach tested. |
+
+---
+
+- **Test results:**
+
+![](./assets/table-1.png)
+
+---
+
+- **Test results:**
+
+![](./assets/table-2.png)
+
+---
+
+- **Test results:**
+
+![](./assets/table-3.png)
