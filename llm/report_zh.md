@@ -6,7 +6,7 @@ paginate: true
 math: katex
 backgroundColor: #FFFFFF
 color: #303133
-footer: Chen Qi @ 2025
+footer: Chen Qi @ 2026
 style: |
   p {
     margin: 16px;
